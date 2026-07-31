@@ -21,6 +21,7 @@ import {
   EllipticalROITool,
   PlanarRotateTool,
   OrientationMarkerTool,
+  TrackballRotateTool,
   Enums as csToolsEnums,
   utilities as csToolsUtilities,
 } from '@cornerstonejs/tools';
@@ -32,11 +33,61 @@ import type { ViewportInfo } from './viewportUtils';
 
 const RENDERING_ENGINE_ID = 'dicomRenderingEngine';
 const TOOL_GROUP_ID = 'mainTools';
+const TOOL_GROUP_ID_3D = 'mainTools3D';
 const STACK_VIEWPORT_ID = 'CT_STACK';
 const VOLUME_SINGLE_VP_ID = 'CT_SINGLE_VOL';
+const VOLUME_3D_VP_ID = 'CT_3D';
 const MPR_VIEWPORT_IDS = ['CT_AXIAL', 'CT_SAGITTAL', 'CT_CORONAL'];
 const GRID_VIEWPORT_IDS = ['VP_GRID_0', 'VP_GRID_1', 'VP_GRID_2', 'VP_GRID_3'];
 const VOLUME_ID = 'dicomVolume';
+
+// Curated Volume Rendering presets. CT-Soft-Tissue is the default — it renders
+// organs and fluid-filled structures (e.g. cysts, ~0-20 HU) as low-density regions
+// against soft tissue, which is what we want for visualizing internal organ structure.
+const VR_PRESETS_CT = [
+  'CT-Soft-Tissue',
+  'CT-Bone',
+  'CT-Bones',
+  'CT-Lung',
+  'CT-MIP',
+  'CT-Fat',
+  'CT-Muscle',
+  'CT-Air',
+  'CT-Chest-Contrast-Enhanced',
+  'CT-Chest-Vessels',
+  'CT-Liver-Vasculature',
+  'CT-Cardiac',
+  'CT-Pulmonary-Arteries',
+  'CT-Coronary-Arteries',
+];
+const VR_PRESETS_MR = ['MR-Default', 'MR-MIP', 'MR-Angio', 'MR-T2-Brain'];
+type VrBlend = 'composite' | 'mip' | 'minip' | 'average';
+const VR_BLEND_OPTIONS: { value: VrBlend; label: string }[] = [
+  { value: 'composite', label: 'Volume' },
+  { value: 'mip', label: 'MIP' },
+  { value: 'minip', label: 'MinIP' },
+  { value: 'average', label: 'Average' },
+];
+
+const VR_BLEND_MAP: Record<VrBlend, Enums.BlendModes> = {
+  composite: Enums.BlendModes.COMPOSITE,
+  mip: Enums.BlendModes.MAXIMUM_INTENSITY_BLEND,
+  minip: Enums.BlendModes.MINIMUM_INTENSITY_BLEND,
+  average: Enums.BlendModes.AVERAGE_INTENSITY_BLEND,
+};
+
+/** Apply a transfer-function preset + blend mode to a 3D volume viewport. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function applyVrToViewport(vp: any, preset: string, blend: VrBlend) {
+  try {
+    vp.setProperties?.({ preset });
+  } catch { /* preset may not exist for some modalities — ignore */ }
+  // MinIP is especially useful for low-density structures (cysts, fluid, air).
+  try {
+    vp.setBlendMode?.(VR_BLEND_MAP[blend]);
+  } catch { /* some viewports don't support blend mode */ }
+  vp.render?.();
+}
 
 let toolsRegistered = false;
 
@@ -52,6 +103,7 @@ function registerTools() {
   addTool(EllipticalROITool);
   addTool(PlanarRotateTool);
   addTool(OrientationMarkerTool);
+  addTool(TrackballRotateTool);
   toolsRegistered = true;
 }
 
@@ -126,6 +178,71 @@ function ViewportOverlay({ label, info }: { label: string; info: ViewportInfo })
   );
 }
 
+/** Overlay controls for the 3D Volume Rendering viewport (preset + blend mode). */
+function VrOverlay({
+  modality,
+  preset,
+  blend,
+  onPresetChange,
+  onBlendChange,
+}: {
+  modality?: string;
+  preset: string;
+  blend: VrBlend;
+  onPresetChange: (p: string) => void;
+  onBlendChange: (b: VrBlend) => void;
+}) {
+  const isMR = modality?.toUpperCase().startsWith('MR') ?? false;
+  const presetList = isMR ? VR_PRESETS_MR : VR_PRESETS_CT;
+  // Always include the active preset even if it's from the "other" modality list,
+  // so the select never shows a blank value.
+  const options = presetList.includes(preset) ? presetList : [preset, ...presetList];
+  const selectCls =
+    'bg-neutral-900/90 text-neutral-200 text-[11px] rounded px-1.5 py-1 border border-neutral-700 outline-none focus:border-blue-500 cursor-pointer backdrop-blur-sm';
+
+  return (
+    <>
+      <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5 pointer-events-none">
+        <span className="text-xs font-medium text-neutral-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+          3D
+        </span>
+        <span className="text-[10px] text-neutral-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+          drag to rotate
+        </span>
+      </div>
+      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5 items-end">
+        <select
+          className={selectCls}
+          value={preset}
+          onChange={(e) => onPresetChange(e.target.value)}
+          title="Transfer function preset"
+        >
+          {options.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+        <select
+          className={selectCls}
+          value={blend}
+          onChange={(e) => onBlendChange(e.target.value as VrBlend)}
+          title="Blend mode (MinIP highlights low-density structures like cysts)"
+        >
+          {VR_BLEND_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+      </div>
+      {blend === 'minip' && (
+        <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
+          <span className="text-[10px] text-teal-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
+            MinIP — low-density (cysts/fluid)
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
 function SliceSlider({ current, total, onChange }: {
   current: number;
   total: number;
@@ -190,6 +307,7 @@ export default function ViewportGrid({
   const axialRef = useRef<HTMLDivElement>(null);
   const sagittalRef = useRef<HTMLDivElement>(null);
   const coronalRef = useRef<HTMLDivElement>(null);
+  const volume3DRef = useRef<HTMLDivElement>(null);
   const gridRef0 = useRef<HTMLDivElement>(null);
   const gridRef1 = useRef<HTMLDivElement>(null);
   const gridRef2 = useRef<HTMLDivElement>(null);
@@ -215,6 +333,12 @@ export default function ViewportGrid({
   const [gridLoadedSlots, setGridLoadedSlots] = useState<Record<number, string>>({});
   const [gridInfo, setGridInfo] = useState<Record<number, ViewportInfo>>({});
   const [pickingSlot, setPickingSlot] = useState<number | null>(null);
+
+  // Volume Rendering state (3D viewport in MPR layout)
+  const [vrPreset, setVrPreset] = useState<string>('CT-Soft-Tissue');
+  const [vrBlend, setVrBlend] = useState<VrBlend>('composite');
+  const vrSettingsRef = useRef({ preset: vrPreset, blend: vrBlend });
+  vrSettingsRef.current = { preset: vrPreset, blend: vrBlend };
 
   // Create rendering engine once on mount — avoids WebGL context leaks
   useEffect(() => {
@@ -263,15 +387,29 @@ export default function ViewportGrid({
         (vp as any).resetProperties?.();
         vp.render();
       }
+      // resetProperties wipes the VR transfer function — re-apply current preset/blend.
+      const vp3D = engine.getViewport(VOLUME_3D_VP_ID);
+      if (vp3D) {
+        applyVrToViewport(vp3D, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
+      }
     };
     return () => { onResetRef.current = null; };
   });
+
+  // Re-apply VR preset + blend mode when they change at runtime (3D viewport only).
+  useEffect(() => {
+    const engine = renderingEngineRef.current;
+    if (!engine) return;
+    const vp = engine.getViewport(VOLUME_3D_VP_ID);
+    if (!vp) return;
+    applyVrToViewport(vp, vrPreset, vrBlend);
+  }, [vrPreset, vrBlend]);
 
   // Resize viewports when container dimensions change
   useEffect(() => {
     const elements = [
       singleRef.current, axialRef.current, sagittalRef.current, coronalRef.current,
-      gridRef0.current, gridRef1.current, gridRef2.current, gridRef3.current,
+      volume3DRef.current, gridRef0.current, gridRef1.current, gridRef2.current, gridRef3.current,
     ].filter(Boolean) as HTMLDivElement[];
     if (elements.length === 0) return;
 
@@ -444,6 +582,7 @@ export default function ViewportGrid({
     }
 
     ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID);
+    ToolGroupManager.destroyToolGroup(TOOL_GROUP_ID_3D);
 
     // Disable viewports (releases WebGL contexts) but keep engine alive
     const engine = renderingEngineRef.current;
@@ -574,7 +713,8 @@ export default function ViewportGrid({
     const axialEl = axialRef.current;
     const sagittalEl = sagittalRef.current;
     const coronalEl = coronalRef.current;
-    if (!axialEl || !sagittalEl || !coronalEl) return;
+    const volume3DEl = volume3DRef.current;
+    if (!axialEl || !sagittalEl || !coronalEl || !volume3DEl) return;
 
     const elements = [axialEl, sagittalEl, coronalEl];
 
@@ -597,6 +737,12 @@ export default function ViewportGrid({
         type: Enums.ViewportType.ORTHOGRAPHIC,
         defaultOptions: { orientation: Enums.OrientationAxis.CORONAL },
       },
+      // 4th slot: true 3D volume rendering (perspective). Rotatable via TrackballRotateTool.
+      {
+        viewportId: VOLUME_3D_VP_ID,
+        element: volume3DEl,
+        type: Enums.ViewportType.VOLUME_3D,
+      },
     ]);
 
     const toolGroup = createToolGroup(MPR_VIEWPORT_IDS, renderingEngine.id);
@@ -604,17 +750,43 @@ export default function ViewportGrid({
       bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }],
     });
 
+    // Dedicated tool group for the 3D viewport: left-click rotates, plus pan/zoom.
+    const toolGroup3D = ToolGroupManager.createToolGroup(TOOL_GROUP_ID_3D);
+    if (toolGroup3D) {
+      toolGroup3D.addTool(TrackballRotateTool.toolName);
+      toolGroup3D.addTool(PanTool.toolName);
+      toolGroup3D.addTool(ZoomTool.toolName);
+      toolGroup3D.addViewport(VOLUME_3D_VP_ID, renderingEngine.id);
+      toolGroup3D.setToolActive(TrackballRotateTool.toolName, {
+        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }],
+      });
+      toolGroup3D.setToolActive(ZoomTool.toolName, {
+        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Secondary }],
+      });
+      toolGroup3D.setToolActive(PanTool.toolName, {
+        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Auxiliary }],
+      });
+    }
+
     const volume = await volumeLoader.createAndCacheVolume(VOLUME_ID, { imageIds });
     volume.load();
 
+    const allVpIds = [...MPR_VIEWPORT_IDS, VOLUME_3D_VP_ID];
     setVolumesForViewports(
       renderingEngine,
       [{ volumeId: VOLUME_ID }],
-      MPR_VIEWPORT_IDS,
+      allVpIds,
     );
 
+    // Apply the current VR preset + blend mode to the 3D viewport and frame it.
+    const vp3D = renderingEngine.getViewport(VOLUME_3D_VP_ID);
+    if (vp3D) {
+      applyVrToViewport(vp3D, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
+      try { vp3D.resetCamera(); } catch { /* not ready yet */ }
+    }
+
     renderingEngine.resize();
-    renderingEngine.renderViewports(MPR_VIEWPORT_IDS);
+    renderingEngine.renderViewports(allVpIds);
     applyToggles();
 
     const updateAllMprInfo = () => {
@@ -642,8 +814,18 @@ export default function ViewportGrid({
       updateVpInfo();
     }
 
-    // Volume loading completes asynchronously — update info once ready
-    const onVolumeLoaded = () => updateAllMprInfo();
+    // Volume loading completes asynchronously — update info once ready, and
+    // re-frame/re-preset the 3D viewport once the volume data is available.
+    const onVolumeLoaded = () => {
+      updateAllMprInfo();
+      const engine = renderingEngineRef.current;
+      const vp3DLate = engine?.getViewport(VOLUME_3D_VP_ID);
+      if (vp3DLate) {
+        applyVrToViewport(vp3DLate, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
+        try { vp3DLate.resetCamera(); } catch { /* not ready yet */ }
+        vp3DLate.render();
+      }
+    };
     eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded);
     eventCleanupsRef.current.push(() =>
       eventTarget.removeEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded),
@@ -839,7 +1021,7 @@ export default function ViewportGrid({
   useEffect(() => {
     const elements = [
       singleRef.current, axialRef.current, sagittalRef.current, coronalRef.current,
-      gridRef0.current, gridRef1.current, gridRef2.current, gridRef3.current,
+      volume3DRef.current, gridRef0.current, gridRef1.current, gridRef2.current, gridRef3.current,
     ].filter(Boolean) as HTMLDivElement[];
     if (elements.length === 0) return;
 
@@ -914,8 +1096,15 @@ export default function ViewportGrid({
             <ViewportOverlay label="Coronal" info={mprInfo.CT_CORONAL} />
           </div>
         </div>
-        <div className="bg-neutral-900 flex items-center justify-center">
-          <span className="text-xs text-neutral-600">3D view (coming soon)</span>
+        <div className="relative flex overflow-hidden bg-black">
+          <div ref={volume3DRef} className="absolute inset-0" />
+          <VrOverlay
+            modality={studyMetadata?.modality}
+            preset={vrPreset}
+            blend={vrBlend}
+            onPresetChange={setVrPreset}
+            onBlendChange={setVrBlend}
+          />
         </div>
       </div>
     );
