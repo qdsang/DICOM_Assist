@@ -5,6 +5,8 @@ import {
   pingOllama,
   fetchOllamaModels,
   pullOllamaModel,
+  DEFAULT_CLAUDE_API_URL,
+  DEFAULT_CLAUDE_MODEL,
   type OllamaModelInfo,
 } from '../llm/LLMServiceFactory';
 
@@ -141,19 +143,47 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
 
           {/* Claude fields */}
           {config.provider === 'claude' && (
-            <div>
-              <label className="text-xs text-neutral-400 block mb-1.5">API Key</label>
-              <input
-                type="password"
-                value={config.apiKey ?? ''}
-                onChange={(e) => onConfigChange({ ...config, apiKey: e.target.value })}
-                placeholder="sk-ant-..."
-                className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500"
-              />
-              <p className="text-[10px] text-neutral-500 mt-1">
-                Stored in localStorage only. Never sent to our servers.
-              </p>
-            </div>
+            <>
+              <div>
+                <label className="text-xs text-neutral-400 block mb-1.5">API Key</label>
+                <input
+                  type="password"
+                  value={config.apiKey ?? ''}
+                  onChange={(e) => onConfigChange({ ...config, apiKey: e.target.value })}
+                  placeholder="sk-ant-..."
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500"
+                />
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Stored in localStorage only. Never sent to our servers.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-neutral-400 block mb-1.5">API URL</label>
+                <input
+                  type="text"
+                  value={config.claudeApiUrl ?? ''}
+                  onChange={(e) => onConfigChange({ ...config, claudeApiUrl: e.target.value })}
+                  placeholder={DEFAULT_CLAUDE_API_URL}
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500 font-mono"
+                />
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Leave empty to use the default Anthropic endpoint. Set to a proxy URL if you can't access Anthropic directly.
+                </p>
+              </div>
+              <div>
+                <label className="text-xs text-neutral-400 block mb-1.5">Model</label>
+                <input
+                  type="text"
+                  value={config.claudeModel ?? ''}
+                  onChange={(e) => onConfigChange({ ...config, claudeModel: e.target.value })}
+                  placeholder={DEFAULT_CLAUDE_MODEL}
+                  className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500 font-mono"
+                />
+                <p className="text-[10px] text-neutral-500 mt-1">
+                  Leave empty to use {DEFAULT_CLAUDE_MODEL}. Other options: claude-opus-4-5-20250929, claude-haiku-4-5-20251001.
+                </p>
+              </div>
+            </>
           )}
 
           {/* Ollama fields */}

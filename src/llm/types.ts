@@ -36,6 +36,8 @@ export type ProviderType = 'claude' | 'ollama';
 export interface ProviderConfig {
   provider: ProviderType;
   apiKey?: string;           // Claude only
+  claudeApiUrl?: string;     // Claude API base URL override (e.g. for proxies)
+  claudeModel?: string;      // Claude model override
   ollamaTextModel?: string;  // Ollama model for Call 1 (text-only planning)
   ollamaVisionModel?: string; // Ollama model for Call 2 (multimodal analysis)
   ollamaUrl?: string;        // Ollama base URL override

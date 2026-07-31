@@ -104,10 +104,13 @@ function parseSelectionPlan(raw: string): SelectionPlan {
 
 class ClaudeService implements LLMService {
   private apiKey: string;
-  private model = 'claude-sonnet-4-5-20250929';
+  private apiUrl: string;
+  private model: string;
 
-  constructor(apiKey: string) {
+  constructor(apiKey: string, apiUrl: string, model: string) {
     this.apiKey = apiKey;
+    this.apiUrl = apiUrl;
+    this.model = model;
   }
 
   async getSelectionPlan(metadata: StudyMetadata, clinicalHint: string, viewportContext?: ViewportContext): Promise<SelectionPlan> {
@@ -181,7 +184,7 @@ class ClaudeService implements LLMService {
     temperature: number;
     maxTokens: number;
   }): Promise<string> {
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch(this.apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -334,11 +337,16 @@ class OllamaService implements LLMService {
 const DEFAULT_TEXT_MODEL = 'alibayram/medgemma:4b';
 const DEFAULT_VISION_MODEL = 'gemma3:4b';
 
+export const DEFAULT_CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
+export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
+
 export function createLLMService(config: ProviderConfig): LLMService {
   if (config.provider === 'claude') {
     const key = config.apiKey || import.meta.env.VITE_ANTHROPIC_API_KEY;
     if (!key) throw new Error('Claude API key is required. Enter it in Settings.');
-    return new ClaudeService(key);
+    const apiUrl = config.claudeApiUrl || DEFAULT_CLAUDE_API_URL;
+    const model = config.claudeModel || DEFAULT_CLAUDE_MODEL;
+    return new ClaudeService(key, apiUrl, model);
   }
   const baseUrl = config.ollamaUrl || 'http://localhost:11434';
   const textModel = config.ollamaTextModel || DEFAULT_TEXT_MODEL;
