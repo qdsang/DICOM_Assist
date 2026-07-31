@@ -22,6 +22,7 @@ import {
   ChevronDown,
   Triangle,
   Circle,
+  Box,
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -80,7 +81,8 @@ const layouts: { name: LayoutType; label: string; icon: React.ReactNode }[] = [
     </svg>
   )},
   { name: '2x2', label: '2\u00d72 Grid', icon: <Grid2x2 className="w-4 h-4" /> },
-  { name: 'mpr', label: 'MPR', icon: <Grid2x2 className="w-4 h-4" /> },
+  { name: 'mpr', label: 'MPR (Axial/Sag/Cor/3D)', icon: <Grid2x2 className="w-4 h-4" /> },
+  { name: '3d', label: '3D Volume', icon: <Box className="w-4 h-4" /> },
 ];
 
 const markerTypes: { name: OrientationMarkerType; label: string }[] = [

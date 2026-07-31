@@ -9,7 +9,6 @@ import {
   utilities as csCoreUtilities,
 } from '@cornerstonejs/core';
 import {
-  addTool,
   ToolGroupManager,
   WindowLevelTool,
   PanTool,
@@ -22,6 +21,7 @@ import {
   PlanarRotateTool,
   OrientationMarkerTool,
   TrackballRotateTool,
+  VolumeCroppingTool,
   Enums as csToolsEnums,
   utilities as csToolsUtilities,
 } from '@cornerstonejs/tools';
@@ -30,113 +30,84 @@ import type { StudyMetadata } from '../dicom/types';
 import EmptyViewportOverlay from './EmptyViewportOverlay';
 import { extractViewportInfo } from './viewportUtils';
 import type { ViewportInfo } from './viewportUtils';
+import { SliceSlider } from './SliceSlider';
+import { ViewportOverlay } from './overlays/ViewportOverlay';
+import { VrOverlay } from './overlays/VrOverlay';
+import { registerTools, applyVrToViewport } from './vrHelpers';
+import {
+  RENDERING_ENGINE_ID,
+  TOOL_GROUP_ID,
+  TOOL_GROUP_ID_3D,
+  STACK_VIEWPORT_ID,
+  VOLUME_SINGLE_VP_ID,
+  VOLUME_3D_VP_ID,
+  MPR_VIEWPORT_IDS,
+  GRID_VIEWPORT_IDS,
+  VOLUME_ID,
+  ORIENTATION_MAP,
+  MARKER_TYPE_MAP,
+  ALL_LEFT_CLICK_TOOLS,
+  type ActiveToolName,
+  type LayoutType,
+  type OrientationMarkerType,
+  type VrBlend,
+} from './constants';
 
-const RENDERING_ENGINE_ID = 'dicomRenderingEngine';
-const TOOL_GROUP_ID = 'mainTools';
-const TOOL_GROUP_ID_3D = 'mainTools3D';
-const STACK_VIEWPORT_ID = 'CT_STACK';
-const VOLUME_SINGLE_VP_ID = 'CT_SINGLE_VOL';
-const VOLUME_3D_VP_ID = 'CT_3D';
-const MPR_VIEWPORT_IDS = ['CT_AXIAL', 'CT_SAGITTAL', 'CT_CORONAL'];
-const GRID_VIEWPORT_IDS = ['VP_GRID_0', 'VP_GRID_1', 'VP_GRID_2', 'VP_GRID_3'];
-const VOLUME_ID = 'dicomVolume';
+// Re-export shared types so existing imports from this module keep working.
+export type { ActiveToolName, LayoutType, OrientationMarkerType };
 
-// Curated Volume Rendering presets. CT-Soft-Tissue is the default — it renders
-// organs and fluid-filled structures (e.g. cysts, ~0-20 HU) as low-density regions
-// against soft tissue, which is what we want for visualizing internal organ structure.
-const VR_PRESETS_CT = [
-  'CT-Soft-Tissue',
-  'CT-Bone',
-  'CT-Bones',
-  'CT-Lung',
-  'CT-MIP',
-  'CT-Fat',
-  'CT-Muscle',
-  'CT-Air',
-  'CT-Chest-Contrast-Enhanced',
-  'CT-Chest-Vessels',
-  'CT-Liver-Vasculature',
-  'CT-Cardiac',
-  'CT-Pulmonary-Arteries',
-  'CT-Coronary-Arteries',
-];
-const VR_PRESETS_MR = ['MR-Default', 'MR-MIP', 'MR-Angio', 'MR-T2-Brain'];
-type VrBlend = 'composite' | 'mip' | 'minip' | 'average';
-const VR_BLEND_OPTIONS: { value: VrBlend; label: string }[] = [
-  { value: 'composite', label: 'Volume' },
-  { value: 'mip', label: 'MIP' },
-  { value: 'minip', label: 'MinIP' },
-  { value: 'average', label: 'Average' },
-];
-
-const VR_BLEND_MAP: Record<VrBlend, Enums.BlendModes> = {
-  composite: Enums.BlendModes.COMPOSITE,
-  mip: Enums.BlendModes.MAXIMUM_INTENSITY_BLEND,
-  minip: Enums.BlendModes.MINIMUM_INTENSITY_BLEND,
-  average: Enums.BlendModes.AVERAGE_INTENSITY_BLEND,
-};
-
-/** Apply a transfer-function preset + blend mode to a 3D volume viewport. */
+/**
+ * Set the 3D tool group's primary (left-click) binding:
+ *  - crop on  → VolumeCroppingTool active (drag handles), rotate passive
+ *  - crop off → TrackballRotateTool active (rotate), crop enabled (planes persist, handles hidden)
+ * Zoom (right) + Pan (middle) always bound.
+ */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyVrToViewport(vp: any, preset: string, blend: VrBlend) {
-  try {
-    vp.setProperties?.({ preset });
-  } catch { /* preset may not exist for some modalities — ignore */ }
-  // MinIP is especially useful for low-density structures (cysts, fluid, air).
-  try {
-    vp.setBlendMode?.(VR_BLEND_MAP[blend]);
-  } catch { /* some viewports don't support blend mode */ }
-  vp.render?.();
+function set3DToolBindings(tg: any, crop: boolean) {
+  const cropTool = tg.getToolInstance?.(VolumeCroppingTool.toolName);
+  if (crop) {
+    try { tg.setToolActive(VolumeCroppingTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }] }); } catch { /* */ }
+    cropTool?.setHandlesVisible?.(true);
+    try { tg.setToolPassive(TrackballRotateTool.toolName); } catch { /* */ }
+  } else {
+    try { tg.setToolEnabled(VolumeCroppingTool.toolName); } catch { /* crop planes not yet set */ }
+    cropTool?.setHandlesVisible?.(false);
+    try { tg.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }] }); } catch { /* */ }
+  }
+  try { tg.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Secondary }] }); } catch { /* */ }
+  try { tg.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Auxiliary }] }); } catch { /* */ }
 }
 
-let toolsRegistered = false;
-
-function registerTools() {
-  if (toolsRegistered) return;
-  addTool(WindowLevelTool);
-  addTool(PanTool);
-  addTool(ZoomTool);
-  addTool(StackScrollTool);
-  addTool(LengthTool);
-  addTool(CrosshairsTool);
-  addTool(AngleTool);
-  addTool(EllipticalROITool);
-  addTool(PlanarRotateTool);
-  addTool(OrientationMarkerTool);
-  addTool(TrackballRotateTool);
-  toolsRegistered = true;
+/** Create (or reuse) the dedicated tool group for the 3D volume viewport. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function create3DToolGroup(renderingEngineId: string, crop: boolean): any {
+  let tg = ToolGroupManager.getToolGroup(TOOL_GROUP_ID_3D);
+  if (!tg) {
+    tg = ToolGroupManager.createToolGroup(TOOL_GROUP_ID_3D);
+    if (!tg) return null;
+    tg.addTool(TrackballRotateTool.toolName);
+    tg.addTool(VolumeCroppingTool.toolName);
+    tg.addTool(PanTool.toolName);
+    tg.addTool(ZoomTool.toolName);
+    tg.addViewport(VOLUME_3D_VP_ID, renderingEngineId);
+  }
+  set3DToolBindings(tg, crop);
+  return tg;
 }
 
-const ORIENTATION_MAP: Record<AnatomicalPlane, Enums.OrientationAxis> = {
-  axial: Enums.OrientationAxis.AXIAL,
-  sagittal: Enums.OrientationAxis.SAGITTAL,
-  coronal: Enums.OrientationAxis.CORONAL,
-};
-
-export type ActiveToolName =
-  | 'WindowLevel' | 'Pan' | 'Zoom'
-  | 'Length' | 'Angle' | 'EllipticalROI'
-  | 'Crosshairs' | 'Rotate';
-
-export type LayoutType = '1x1' | '1x2' | '2x1' | '2x2' | 'mpr';
-export type OrientationMarkerType = 'cube' | 'axes' | 'custom';
-
-const MARKER_TYPE_MAP: Record<OrientationMarkerType, number> = {
-  cube: OrientationMarkerTool.OVERLAY_MARKER_TYPES.ANNOTATED_CUBE,
-  axes: OrientationMarkerTool.OVERLAY_MARKER_TYPES.AXES,
-  custom: OrientationMarkerTool.OVERLAY_MARKER_TYPES.CUSTOM,
-};
-
-const ALL_LEFT_CLICK_TOOLS = [
-  WindowLevelTool.toolName,
-  PanTool.toolName,
-  ZoomTool.toolName,
-  LengthTool.toolName,
-  AngleTool.toolName,
-  EllipticalROITool.toolName,
-  CrosshairsTool.toolName,
-  PlanarRotateTool.toolName,
-];
+/** Small expand/restore button shown on each viewport cell (double-click also toggles). */
+function ExpandButton({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      onDoubleClick={(e) => e.stopPropagation()}
+      className="absolute bottom-2 right-2 z-10 w-6 h-6 flex items-center justify-center rounded bg-neutral-800/70 hover:bg-neutral-700 text-neutral-300 text-xs transition-colors"
+      title={expanded ? 'Restore layout' : 'Expand (or double-click)'}
+    >
+      {expanded ? '⤡' : '⤢'}
+    </button>
+  );
+}
 
 interface ViewportGridProps {
   imageIds: string[];
@@ -151,150 +122,6 @@ interface ViewportGridProps {
   flipV?: boolean;
   cineEnabled?: boolean;
   studyMetadata?: StudyMetadata | null;
-}
-
-function ViewportOverlay({ label, info }: { label: string; info: ViewportInfo }) {
-  const shadow = 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]';
-  return (
-    <>
-      <div className={`absolute top-2 left-2 pointer-events-none z-10 flex flex-col gap-0.5`}>
-        <span className={`text-xs font-medium text-neutral-300 ${shadow}`}>
-          {label}
-        </span>
-        {info.total > 0 && (
-          <span className={`text-[11px] tabular-nums text-neutral-400 ${shadow}`}>
-            {info.current + 1} / {info.total}
-          </span>
-        )}
-      </div>
-      {(info.ww > 0 || info.wc !== 0) && (
-        <div className={`absolute bottom-2 left-2 pointer-events-none z-10`}>
-          <span className={`text-[11px] tabular-nums text-neutral-400 ${shadow}`}>
-            W:{Math.round(info.ww)} C:{Math.round(info.wc)}
-          </span>
-        </div>
-      )}
-    </>
-  );
-}
-
-/** Overlay controls for the 3D Volume Rendering viewport (preset + blend mode). */
-function VrOverlay({
-  modality,
-  preset,
-  blend,
-  onPresetChange,
-  onBlendChange,
-}: {
-  modality?: string;
-  preset: string;
-  blend: VrBlend;
-  onPresetChange: (p: string) => void;
-  onBlendChange: (b: VrBlend) => void;
-}) {
-  const isMR = modality?.toUpperCase().startsWith('MR') ?? false;
-  const presetList = isMR ? VR_PRESETS_MR : VR_PRESETS_CT;
-  // Always include the active preset even if it's from the "other" modality list,
-  // so the select never shows a blank value.
-  const options = presetList.includes(preset) ? presetList : [preset, ...presetList];
-  const selectCls =
-    'bg-neutral-900/90 text-neutral-200 text-[11px] rounded px-1.5 py-1 border border-neutral-700 outline-none focus:border-blue-500 cursor-pointer backdrop-blur-sm';
-
-  return (
-    <>
-      <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5 pointer-events-none">
-        <span className="text-xs font-medium text-neutral-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          3D
-        </span>
-        <span className="text-[10px] text-neutral-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          drag to rotate
-        </span>
-      </div>
-      <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5 items-end">
-        <select
-          className={selectCls}
-          value={preset}
-          onChange={(e) => onPresetChange(e.target.value)}
-          title="Transfer function preset"
-        >
-          {options.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-        <select
-          className={selectCls}
-          value={blend}
-          onChange={(e) => onBlendChange(e.target.value as VrBlend)}
-          title="Blend mode (MinIP highlights low-density structures like cysts)"
-        >
-          {VR_BLEND_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>{o.label}</option>
-          ))}
-        </select>
-      </div>
-      {blend === 'minip' && (
-        <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
-          <span className="text-[10px] text-teal-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-            MinIP — low-density (cysts/fluid)
-          </span>
-        </div>
-      )}
-    </>
-  );
-}
-
-function SliceSlider({ current, total, onChange }: {
-  current: number;
-  total: number;
-  onChange: (index: number) => void;
-}) {
-  const trackRef = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-
-  if (total <= 1) return null;
-
-  const pct = (current / (total - 1)) * 100;
-
-  function indexFromY(clientY: number) {
-    const track = trackRef.current;
-    if (!track) return current;
-    const rect = track.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
-    return Math.round(ratio * (total - 1));
-  }
-
-  function handlePointerDown(e: React.PointerEvent) {
-    dragging.current = true;
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-    onChange(indexFromY(e.clientY));
-  }
-
-  function handlePointerMove(e: React.PointerEvent) {
-    if (!dragging.current) return;
-    onChange(indexFromY(e.clientY));
-  }
-
-  function handlePointerUp() {
-    dragging.current = false;
-  }
-
-  return (
-    <div
-      ref={trackRef}
-      className="w-5 shrink-0 flex items-center justify-center bg-neutral-900 cursor-pointer select-none"
-      onPointerDown={handlePointerDown}
-      onPointerMove={handlePointerMove}
-      onPointerUp={handlePointerUp}
-      onPointerCancel={handlePointerUp}
-    >
-      <div className="relative w-1 h-full rounded-full bg-neutral-700">
-        <div
-          className="absolute left-1/2 -translate-x-1/2 w-3 h-3 rounded-full bg-blue-500 shadow"
-          style={{ top: `calc(${pct}% - 6px)` }}
-        />
-      </div>
-    </div>
-  );
 }
 
 export default function ViewportGrid({
@@ -339,6 +166,16 @@ export default function ViewportGrid({
   const [vrBlend, setVrBlend] = useState<VrBlend>('composite');
   const vrSettingsRef = useRef({ preset: vrPreset, blend: vrBlend });
   vrSettingsRef.current = { preset: vrPreset, blend: vrBlend };
+
+  // Volume cropping (3D viewport): drag handles to cut away superficial tissue
+  // (skin/bone) and reveal deep structures like cysts. Crop planes persist when
+  // crop mode is toggled off (handles hidden, rotation re-enabled).
+  const [crop3DEnabled, setCrop3DEnabled] = useState(false);
+  const crop3DEnabledRef = useRef(false);
+  crop3DEnabledRef.current = crop3DEnabled;
+
+  // Expand-to-fullscreen: double-click a cell in MPR/grid to fill the area.
+  const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
 
   // Create rendering engine once on mount — avoids WebGL context leaks
   useEffect(() => {
@@ -404,6 +241,27 @@ export default function ViewportGrid({
     if (!vp) return;
     applyVrToViewport(vp, vrPreset, vrBlend);
   }, [vrPreset, vrBlend]);
+
+  // Toggle crop mode on the 3D tool group (rotate ↔ crop handles).
+  useEffect(() => {
+    const tg = ToolGroupManager.getToolGroup(TOOL_GROUP_ID_3D);
+    if (!tg) return;
+    set3DToolBindings(tg, crop3DEnabled);
+  }, [crop3DEnabled]);
+
+  // Re-fit viewports when a cell is expanded / restored (sizes change).
+  useEffect(() => {
+    const engine = renderingEngineRef.current;
+    if (!engine) return;
+    const id = requestAnimationFrame(() => {
+      engine.resize();
+      engine.render();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [expandedSlot]);
+
+  // Reset expansion when switching layout.
+  useEffect(() => { setExpandedSlot(null); }, [layout]);
 
   // Resize viewports when container dimensions change
   useEffect(() => {
@@ -611,6 +469,8 @@ export default function ViewportGrid({
 
     if (layout === 'mpr') {
       await setupMprViewports(renderingEngine);
+    } else if (layout === '3d') {
+      await setup3DViewport(renderingEngine);
     } else if (layout === '1x1') {
       if (orientation === primaryAxis) {
         setupNativeStackViewport(renderingEngine);
@@ -684,7 +544,7 @@ export default function ViewportGrid({
 
     renderingEngine.resize();
     renderingEngine.renderViewports([VOLUME_SINGLE_VP_ID]);
-    applyToggles();
+    applyInitialState();
 
     listenToViewport(element, Enums.Events.VOLUME_NEW_IMAGE, () => {
       updateSingleInfo(VOLUME_SINGLE_VP_ID);
@@ -750,23 +610,8 @@ export default function ViewportGrid({
       bindings: [{ mouseButton: csToolsEnums.MouseBindings.Wheel }],
     });
 
-    // Dedicated tool group for the 3D viewport: left-click rotates, plus pan/zoom.
-    const toolGroup3D = ToolGroupManager.createToolGroup(TOOL_GROUP_ID_3D);
-    if (toolGroup3D) {
-      toolGroup3D.addTool(TrackballRotateTool.toolName);
-      toolGroup3D.addTool(PanTool.toolName);
-      toolGroup3D.addTool(ZoomTool.toolName);
-      toolGroup3D.addViewport(VOLUME_3D_VP_ID, renderingEngine.id);
-      toolGroup3D.setToolActive(TrackballRotateTool.toolName, {
-        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }],
-      });
-      toolGroup3D.setToolActive(ZoomTool.toolName, {
-        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Secondary }],
-      });
-      toolGroup3D.setToolActive(PanTool.toolName, {
-        bindings: [{ mouseButton: csToolsEnums.MouseBindings.Auxiliary }],
-      });
-    }
+    // Dedicated tool group for the 3D viewport (rotate / crop / pan / zoom).
+    create3DToolGroup(renderingEngine.id, crop3DEnabledRef.current);
 
     const volume = await volumeLoader.createAndCacheVolume(VOLUME_ID, { imageIds });
     volume.load();
@@ -787,7 +632,7 @@ export default function ViewportGrid({
 
     renderingEngine.resize();
     renderingEngine.renderViewports(allVpIds);
-    applyToggles();
+    applyInitialState();
 
     const updateAllMprInfo = () => {
       const engine = renderingEngineRef.current;
@@ -825,6 +670,47 @@ export default function ViewportGrid({
         try { vp3DLate.resetCamera(); } catch { /* not ready yet */ }
         vp3DLate.render();
       }
+    };
+    eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded);
+    eventCleanupsRef.current.push(() =>
+      eventTarget.removeEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded),
+    );
+  }
+
+  // Standalone 3D layout: a single full-size Volume Rendering viewport.
+  async function setup3DViewport(renderingEngine: RenderingEngine) {
+    const el = volume3DRef.current;
+    if (!el) return;
+
+    renderingEngine.enableElement({
+      viewportId: VOLUME_3D_VP_ID,
+      element: el,
+      type: Enums.ViewportType.VOLUME_3D,
+    });
+
+    create3DToolGroup(renderingEngine.id, crop3DEnabledRef.current);
+
+    const volume = await volumeLoader.createAndCacheVolume(VOLUME_ID, { imageIds });
+    volume.load();
+
+    setVolumesForViewports(renderingEngine, [{ volumeId: VOLUME_ID }], [VOLUME_3D_VP_ID]);
+
+    const vp3D = renderingEngine.getViewport(VOLUME_3D_VP_ID);
+    if (vp3D) {
+      applyVrToViewport(vp3D, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
+      try { vp3D.resetCamera(); } catch { /* not ready yet */ }
+    }
+
+    renderingEngine.resize();
+    renderingEngine.renderViewports([VOLUME_3D_VP_ID]);
+
+    const onVolumeLoaded = () => {
+      const engine = renderingEngineRef.current;
+      const vp = engine?.getViewport(VOLUME_3D_VP_ID);
+      if (!vp) return;
+      applyVrToViewport(vp, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
+      try { vp.resetCamera(); } catch { /* not ready yet */ }
+      vp.render();
     };
     eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded);
     eventCleanupsRef.current.push(() =>
@@ -1070,40 +956,69 @@ export default function ViewportGrid({
   const isGridLayout = layout === '1x2' || layout === '2x1' || layout === '2x2';
 
   if (layout === 'mpr') {
+    const cells = [
+      { ref: axialRef, label: 'Axial', info: mprInfo.CT_AXIAL, vpId: MPR_VIEWPORT_IDS[0], is3D: false },
+      { ref: sagittalRef, label: 'Sagittal', info: mprInfo.CT_SAGITTAL, vpId: MPR_VIEWPORT_IDS[1], is3D: false },
+      { ref: coronalRef, label: 'Coronal', info: mprInfo.CT_CORONAL, vpId: MPR_VIEWPORT_IDS[2], is3D: false },
+      { ref: volume3DRef, label: '3D', info: null as ViewportInfo | null, vpId: VOLUME_3D_VP_ID, is3D: true },
+    ];
     return (
       <div
         className="w-full h-full grid grid-cols-2 grid-rows-2 gap-px bg-neutral-800"
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div className="flex overflow-hidden">
-          <SliceSlider current={mprInfo.CT_AXIAL.current} total={mprInfo.CT_AXIAL.total} onChange={(idx) => handleSliceChange(MPR_VIEWPORT_IDS[0], idx)} />
-          <div className="relative flex-1 min-w-0 bg-black">
-            <div ref={axialRef} className="absolute inset-0" />
-            <ViewportOverlay label="Axial" info={mprInfo.CT_AXIAL} />
-          </div>
-        </div>
-        <div className="flex overflow-hidden">
-          <SliceSlider current={mprInfo.CT_SAGITTAL.current} total={mprInfo.CT_SAGITTAL.total} onChange={(idx) => handleSliceChange(MPR_VIEWPORT_IDS[1], idx)} />
-          <div className="relative flex-1 min-w-0 bg-black">
-            <div ref={sagittalRef} className="absolute inset-0" />
-            <ViewportOverlay label="Sagittal" info={mprInfo.CT_SAGITTAL} />
-          </div>
-        </div>
-        <div className="flex overflow-hidden">
-          <SliceSlider current={mprInfo.CT_CORONAL.current} total={mprInfo.CT_CORONAL.total} onChange={(idx) => handleSliceChange(MPR_VIEWPORT_IDS[2], idx)} />
-          <div className="relative flex-1 min-w-0 bg-black">
-            <div ref={coronalRef} className="absolute inset-0" />
-            <ViewportOverlay label="Coronal" info={mprInfo.CT_CORONAL} />
-          </div>
-        </div>
-        <div className="relative flex overflow-hidden bg-black">
+        {cells.map((c, i) => {
+          const expanded = expandedSlot === i;
+          const hidden = expandedSlot !== null && !expanded;
+          return (
+            <div
+              key={i}
+              className={`flex overflow-hidden bg-black ${expanded ? 'col-span-2 row-span-2' : ''} ${hidden ? 'hidden' : ''}`}
+              onDoubleClick={() => setExpandedSlot(expanded ? null : i)}
+            >
+              {!c.is3D && c.info && (
+                <SliceSlider current={c.info.current} total={c.info.total} onChange={(idx) => handleSliceChange(c.vpId, idx)} />
+              )}
+              <div className="relative flex-1 min-w-0">
+                <div ref={c.ref} className="absolute inset-0" />
+                {c.is3D ? (
+                  <VrOverlay
+                    modality={studyMetadata?.modality}
+                    preset={vrPreset}
+                    blend={vrBlend}
+                    cropEnabled={crop3DEnabled}
+                    onPresetChange={setVrPreset}
+                    onBlendChange={setVrBlend}
+                    onToggleCrop={() => setCrop3DEnabled((v) => !v)}
+                  />
+                ) : c.info && (
+                  <ViewportOverlay label={c.label} info={c.info} />
+                )}
+                <ExpandButton expanded={expanded} onClick={() => setExpandedSlot(expanded ? null : i)} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  if (layout === '3d') {
+    return (
+      <div
+        className="w-full h-full bg-black"
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        <div className="relative w-full h-full">
           <div ref={volume3DRef} className="absolute inset-0" />
           <VrOverlay
             modality={studyMetadata?.modality}
             preset={vrPreset}
             blend={vrBlend}
+            cropEnabled={crop3DEnabled}
             onPresetChange={setVrPreset}
             onBlendChange={setVrBlend}
+            onToggleCrop={() => setCrop3DEnabled((v) => !v)}
           />
         </div>
       </div>
@@ -1117,6 +1032,10 @@ export default function ViewportGrid({
       : layout === '2x1' ? 'grid-cols-1 grid-rows-2'
       : 'grid-cols-2 grid-rows-2';
     const refs = [gridRef0, gridRef1, gridRef2, gridRef3];
+    const spanClass =
+      layout === '1x2' ? 'col-span-2'
+      : layout === '2x1' ? 'row-span-2'
+      : 'col-span-2 row-span-2';
 
     return (
       <div
@@ -1137,9 +1056,15 @@ export default function ViewportGrid({
               : '';
           const hasSeries = studyMetadata && studyMetadata.series.length > 1;
           const isPicking = pickingSlot === i;
+          const expanded = expandedSlot === i;
+          const hidden = expandedSlot !== null && !expanded;
 
           return (
-            <div key={i} className="flex overflow-hidden">
+            <div
+              key={i}
+              className={`flex overflow-hidden bg-black ${expanded ? spanClass : ''} ${hidden ? 'hidden' : ''}`}
+              onDoubleClick={() => setExpandedSlot(expanded ? null : i)}
+            >
               {isSlotLoaded && slotInfo && (
                 <SliceSlider current={slotInfo.current} total={slotInfo.total} onChange={(idx) => handleSliceChange(GRID_VIEWPORT_IDS[i], idx)} />
               )}
@@ -1163,6 +1088,7 @@ export default function ViewportGrid({
                         &#x21C4;
                       </button>
                     )}
+                    <ExpandButton expanded={expanded} onClick={() => setExpandedSlot(expanded ? null : i)} />
                   </>
                 ) : hasSeries ? (
                   <EmptyViewportOverlay
