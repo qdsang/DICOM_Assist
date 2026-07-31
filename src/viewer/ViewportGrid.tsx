@@ -34,6 +34,8 @@ import { SliceSlider } from './SliceSlider';
 import { ViewportOverlay } from './overlays/ViewportOverlay';
 import { VrOverlay } from './overlays/VrOverlay';
 import { registerTools, applyVrToViewport } from './vrHelpers';
+import { createCrosshair3D, setCrosshair3DPosition, type Crosshair3D } from './crosshair3D';
+import { logger } from '../utils/logger';
 import {
   RENDERING_ENGINE_ID,
   TOOL_GROUP_ID,
@@ -74,6 +76,14 @@ function set3DToolBindings(tg: any, crop: boolean) {
     cropTool?.setHandlesVisible?.(false);
     try { tg.setToolActive(TrackballRotateTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Primary }] }); } catch { /* */ }
   }
+  // CRITICAL: VolumeCroppingTool.onSetToolActive forces showClippingPlanes=false,
+  // which makes _updateClippingPlanes (called on every CAMERA_MODIFIED, e.g. rotate)
+  // strip ALL clipping planes from the mapper — so the crop vanishes the moment the
+  // user rotates. Re-enable clipping planes here so the crop persists across camera
+  // changes and is actually applied to the volume (not just handle lines).
+  if (cropTool) {
+    try { cropTool.setClippingPlanesVisible?.(true); } catch { /* */ }
+  }
   try { tg.setToolActive(ZoomTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Secondary }] }); } catch { /* */ }
   try { tg.setToolActive(PanTool.toolName, { bindings: [{ mouseButton: csToolsEnums.MouseBindings.Auxiliary }] }); } catch { /* */ }
 }
@@ -108,6 +118,12 @@ function ExpandButton({ expanded, onClick }: { expanded: boolean; onClick: () =>
     </button>
   );
 }
+
+/**
+ * The 3D crosshair marker is rendered as real vtk actors inside the 3D viewport
+ * (see crosshair3D.ts) instead of a 2D SVG overlay — so it gets correctly
+ * occluded by opaque tissue in front and reads as a true 3D intersection.
+ */
 
 interface ViewportGridProps {
   imageIds: string[];
@@ -176,6 +192,18 @@ export default function ViewportGrid({
 
   // Expand-to-fullscreen: double-click a cell in MPR/grid to fill the area.
   const [expandedSlot, setExpandedSlot] = useState<number | null>(null);
+
+  // 3D crosshair marker: rendered as real vtk actors (lines + sphere) INSIDE the
+  // 3D viewport. Stored in refs because the actors are mutated imperatively from
+  // inside event handlers (camera-modified callbacks) and we don't want React
+  // re-renders on every slice scroll.
+  const crosshair3DRef = useRef<Crosshair3D | null>(null);
+  const volumeBoundsRef = useRef<number[] | null>(null);
+  // update3DCrosshair is defined inside setupMprViewports (closure over viewport
+  // elements). Expose it via ref so an activeTool change effect can re-trigger it
+  // (e.g. when the user activates Crosshairs, no CAMERA_MODIFIED fires yet, so the
+  // marker would otherwise stay absent until the first slice drag).
+  const updateCrosshairRef = useRef<(() => void) | null>(null);
 
   // Create rendering engine once on mount — avoids WebGL context leaks
   useEffect(() => {
@@ -248,6 +276,13 @@ export default function ViewportGrid({
     if (!tg) return;
     set3DToolBindings(tg, crop3DEnabled);
   }, [crop3DEnabled]);
+
+  // When the user activates Crosshairs (or any MPR tool), no CAMERA_MODIFIED
+  // event fires yet, so the 3D marker wouldn't appear until the first slice drag.
+  // Re-trigger the crosshair update so it shows immediately on tool activation.
+  useEffect(() => {
+    updateCrosshairRef.current?.();
+  }, [activeTool]);
 
   // Re-fit viewports when a cell is expanded / restored (sizes change).
   useEffect(() => {
@@ -669,12 +704,98 @@ export default function ViewportGrid({
         applyVrToViewport(vp3DLate, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
         try { vp3DLate.resetCamera(); } catch { /* not ready yet */ }
         vp3DLate.render();
+        update3DCrosshair();
       }
     };
     eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded);
     eventCleanupsRef.current.push(() =>
       eventTarget.removeEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded),
     );
+
+    // 3D crosshair marker: real vtk actors (lines + sphere) living INSIDE the 3D
+    // viewport. Position is the MPR slice intersection (x from sagittal, y from
+    // coronal, z from axial). Updates on MPR scroll/crosshair-drag AND on 3D
+    // rotation (camera-modified on the 3D viewport triggers a re-render so the
+    // actors are redrawn from the new viewpoint — the actor geometry itself only
+    // depends on MPR focus, so we don't need to update it on 3D rotation).
+    const update3DCrosshair = () => {
+      const engine = renderingEngineRef.current;
+      if (!engine) return;
+      const aVP = engine.getViewport(MPR_VIEWPORT_IDS[0]);
+      const sVP = engine.getViewport(MPR_VIEWPORT_IDS[1]);
+      const cVP = engine.getViewport(MPR_VIEWPORT_IDS[2]);
+      const v3 = engine.getViewport(VOLUME_3D_VP_ID);
+      if (!aVP || !sVP || !cVP || !v3) {
+        logger.log('[crosshair3D] skip: missing viewport', { aVP: !!aVP, sVP: !!sVP, cVP: !!cVP, v3: !!v3 });
+        return;
+      }
+      const aF = aVP.getCamera()?.focalPoint;
+      const sF = sVP.getCamera()?.focalPoint;
+      const cF = cVP.getCamera()?.focalPoint;
+      if (!aF || !sF || !cF) {
+        logger.log('[crosshair3D] skip: missing focal point');
+        return;
+      }
+      // Intersection of the 3 orthogonal planes: x from sagittal, y from coronal, z from axial.
+      const world = [sF[0], cF[1], aF[2]] as [number, number, number];
+      // Bounds: prefer the cached volume's imageData bounds (structural, available
+      // as soon as the volume is created) over vp.getBounds() (which uses
+      // renderer.computeVisiblePropBounds and can return all-Infinity before the
+      // volume actor is fully processed by the render pipeline).
+      if (!volumeBoundsRef.current) {
+        try {
+          const vol = cache.getVolume(VOLUME_ID);
+          const b = (vol as any)?.imageData?.getBounds?.();
+          logger.log('[crosshair3D] bounds from volume imageData:', b);
+          if (b && b.length === 6 && Number.isFinite(b[0]) && b[3] > b[0]) {
+            volumeBoundsRef.current = b;
+          }
+        } catch (e) { logger.log('[crosshair3D] bounds fetch failed:', e); }
+      }
+      const bounds = volumeBoundsRef.current;
+      if (!bounds || bounds.length !== 6) {
+        logger.log('[crosshair3D] skip: no bounds');
+        return;
+      }
+      const existing = crosshair3DRef.current;
+      try {
+        if (existing) {
+          setCrosshair3DPosition(existing, world, bounds);
+          logger.log('[crosshair3D] updated position:', world);
+        } else {
+          const ch = createCrosshair3D(world, bounds);
+          crosshair3DRef.current = ch;
+          // Use addActor (single) instead of addActors (array): addActors forces a
+          // resetCamera() which would snap the 3D volume's rotation back to default.
+          ch.actors.forEach((a) => {
+            (v3 as any).addActor({ uid: a.uid, actor: a.actor });
+          });
+          logger.log('[crosshair3D] created actors at:', world, 'bounds:', bounds);
+        }
+        v3.render();
+      } catch (err) {
+        // Don't silently swallow — surface so we can diagnose actor-add failures.
+        console.warn('[crosshair3D] update failed:', err);
+      }
+    };
+    updateCrosshairRef.current = update3DCrosshair;
+    listenToViewport(axialEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
+    listenToViewport(sagittalEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
+    listenToViewport(coronalEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
+    listenToViewport(volume3DEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
+    eventCleanupsRef.current.push(() => {
+      // Drop the crosshair actors when tearing down so a fresh setup can re-create them.
+      const engine = renderingEngineRef.current;
+      const v3 = engine?.getViewport(VOLUME_3D_VP_ID);
+      const ch = crosshair3DRef.current;
+      if (v3 && ch) {
+        try { (v3 as any).removeActors(ch.actors.map((a) => a.uid)); } catch { /* */ }
+        try { v3.render(); } catch { /* */ }
+      }
+      crosshair3DRef.current = null;
+      if (updateCrosshairRef.current === update3DCrosshair) updateCrosshairRef.current = null;
+    });
+    update3DCrosshair();
   }
 
   // Standalone 3D layout: a single full-size Volume Rendering viewport.
@@ -950,6 +1071,35 @@ export default function ViewportGrid({
     updateSingleInfo(viewportId);
   }, []);
 
+  // 3D viewport zoom controls (buttons in VrOverlay). VolumeViewport3D supports
+  // getZoom/setZoom via the base Viewport API (dolly).
+  const handle3DZoom = useCallback((factor: number) => {
+    const engine = renderingEngineRef.current;
+    if (!engine) return;
+    const vp = engine.getViewport(VOLUME_3D_VP_ID);
+    if (!vp) return;
+    try {
+      const current = (vp as any).getZoom?.() ?? 1;
+      (vp as any).setZoom?.(current * factor);
+      vp.render();
+    } catch (e) {
+      console.warn('[3D zoom] failed:', e);
+    }
+  }, []);
+
+  const handle3DZoomReset = useCallback(() => {
+    const engine = renderingEngineRef.current;
+    if (!engine) return;
+    const vp = engine.getViewport(VOLUME_3D_VP_ID);
+    if (!vp) return;
+    try {
+      (vp as any).setZoom?.(1);
+      vp.render();
+    } catch (e) {
+      console.warn('[3D zoom reset] failed:', e);
+    }
+  }, []);
+
   // Capitalize first letter for label
   const orientationLabel = orientation.charAt(0).toUpperCase() + orientation.slice(1);
   const isReconstructed = orientation !== primaryAxis;
@@ -982,15 +1132,20 @@ export default function ViewportGrid({
               <div className="relative flex-1 min-w-0">
                 <div ref={c.ref} className="absolute inset-0" />
                 {c.is3D ? (
-                  <VrOverlay
-                    modality={studyMetadata?.modality}
-                    preset={vrPreset}
-                    blend={vrBlend}
-                    cropEnabled={crop3DEnabled}
-                    onPresetChange={setVrPreset}
-                    onBlendChange={setVrBlend}
-                    onToggleCrop={() => setCrop3DEnabled((v) => !v)}
-                  />
+                  <>
+                    <VrOverlay
+                      modality={studyMetadata?.modality}
+                      preset={vrPreset}
+                      blend={vrBlend}
+                      cropEnabled={crop3DEnabled}
+                      onPresetChange={setVrPreset}
+                      onBlendChange={setVrBlend}
+                      onToggleCrop={() => setCrop3DEnabled((v) => !v)}
+                      onZoomIn={() => handle3DZoom(1.2)}
+                      onZoomOut={() => handle3DZoom(1 / 1.2)}
+                      onZoomReset={handle3DZoomReset}
+                    />
+                  </>
                 ) : c.info && (
                   <ViewportOverlay label={c.label} info={c.info} />
                 )}
@@ -1019,6 +1174,9 @@ export default function ViewportGrid({
             onPresetChange={setVrPreset}
             onBlendChange={setVrBlend}
             onToggleCrop={() => setCrop3DEnabled((v) => !v)}
+            onZoomIn={() => handle3DZoom(1.2)}
+            onZoomOut={() => handle3DZoom(1 / 1.2)}
+            onZoomReset={handle3DZoomReset}
           />
         </div>
       </div>
