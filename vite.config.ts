@@ -6,7 +6,7 @@ import { viteCommonjs } from '@originjs/vite-plugin-commonjs';
 // GitHub Pages serves project sites at /<repo-name>/. Build with that base
 // only inside CI so local dev (`vite`) keeps serving from `/`.
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-const repoName = 'DICOMassist';
+const repoName = 'DICOM_Assist';
 
 export default defineConfig({
   base: isGitHubActions ? `/${repoName}/` : '/',

@@ -11,7 +11,7 @@ Smart slice selection meets multimodal AI analysis. DICOMassist is a web-based D
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/fdDkg8ZleyA">Watch the full demo video</a> · <a href="https://qdsang.github.io/DICOMassist/">Live demo</a>
+  <a href="https://youtu.be/fdDkg8ZleyA">Watch the full demo video</a> · <a href="https://qdsang.github.io/DICOM_Assist/">Live demo</a>
 </p>
 
 > ⚠️ **Educational and research use only.** Not a certified medical device. Not intended for clinical diagnosis or treatment decisions.
@@ -39,13 +39,13 @@ A knee MRI can have 200+ slices across 8+ series. Dumping them all to an AI give
 
 ### Live demo
 
-Visit [qdsang.github.io/DICOMassist](https://qdsang.github.io/DICOMassist/)
+Visit [qdsang.github.io/DICOM_Assist](https://qdsang.github.io/DICOM_Assist/)
 
 ### Run locally
 
 ```bash
-git clone https://github.com/erketellal/DICOMassist.git
-cd DICOMassist
+git clone https://github.com/qdsang/DICOM_Assist.git
+cd DICOM_Assist
 npm install
 npm run dev
 ```

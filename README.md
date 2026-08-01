@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/fdDkg8ZleyA">观看完整演示视频</a> · <a href="https://qdsang.github.io/DICOMassist/">在线演示</a>
+  <a href="https://youtu.be/fdDkg8ZleyA">观看完整演示视频</a> · <a href="https://qdsang.github.io/DICOM_Assist/">在线演示</a>
 </p>
 
 > ⚠️ **仅供教学和研究使用。** 非认证医疗器械,不用于临床诊断或治疗决策。
@@ -39,13 +39,13 @@
 
 ### 在线演示
 
-访问 [qdsang.github.io/DICOMassist](https://qdsang.github.io/DICOMassist/)
+访问 [qdsang.github.io/DICOM_Assist](https://qdsang.github.io/DICOM_Assist/)
 
 ### 本地运行
 
 ```bash
-git clone https://github.com/erketellal/DICOMassist.git
-cd DICOMassist
+git clone https://github.com/qdsang/DICOM_Assist.git
+cd DICOM_Assist
 npm install
 npm run dev
 ```
