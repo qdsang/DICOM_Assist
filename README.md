@@ -2,6 +2,8 @@
 
 **AI-Powered Medical Image Analysis**
 
+English | [简体中文](./README.zh-CN.md)
+
 Smart slice selection meets multimodal AI analysis. DICOMassist is a web-based DICOM viewer that intelligently selects the right images before sending them to an LLM for analysis — because the hard part isn't the AI, it's knowing what to send it.
 
 <p align="center">

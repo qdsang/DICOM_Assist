@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChevronUp, ChevronDown, X } from 'lucide-react';
 import type { SelectionPlan, SeriesSelection } from '../llm/types';
 import type { StudyMetadata } from '../dicom/types';
@@ -61,6 +62,7 @@ function rowStateToSelection(row: SelectionRowState): SeriesSelection {
 }
 
 export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: PlanPreviewCardProps) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const [rows, setRows] = useState<SelectionRowState[]>(() =>
     plan.selections.map(selectionToRowState),
@@ -130,14 +132,14 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
         <button
           onClick={() => setExpanded((v) => !v)}
           className="p-0.5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200"
-          title={expanded ? 'Collapse' : 'Expand to edit'}
+          title={expanded ? t('plan.collapse') : t('plan.expand')}
         >
           {expanded ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         </button>
 
         <span className="text-[11px] text-neutral-300 truncate flex-1 leading-tight">
-          <span className="text-neutral-500">Plan:</span>{' '}
-          {summaryParts.join(' + ')} &middot; {totalSlices} total
+          <span className="text-neutral-500">{t('plan.planLabel')}</span>{' '}
+          {summaryParts.join(' + ')} &middot; {t('plan.totalSuffix', { total: totalSlices })}
         </span>
       </div>
 
@@ -147,14 +149,14 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
           onClick={onCancel}
           className="flex-1 px-3 py-1.5 text-xs text-neutral-400 hover:text-neutral-200 rounded border border-neutral-600 hover:bg-neutral-700 transition-colors"
         >
-          Cancel
+          {t('plan.cancel')}
         </button>
         <button
           onClick={handleAccept}
           disabled={rows.length === 0}
           className="flex-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-500 text-white rounded font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          Accept &amp; Analyze ({totalSlices} images)
+          {t('plan.acceptAnalyze', { total: totalSlices })}
         </button>
       </div>
 
@@ -173,7 +175,7 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                   <span className={`text-[9px] font-bold uppercase tracking-wider px-1 py-0.5 rounded ${
                     row.role === 'primary' ? 'bg-blue-900/50 text-blue-300' : 'bg-neutral-700 text-neutral-400'
                   }`}>
-                    {row.role === 'primary' ? 'PRI' : 'SUP'}
+                    {row.role === 'primary' ? t('plan.pri') : t('plan.sup')}
                   </span>
                   <select
                     value={row.seriesNumber}
@@ -182,7 +184,7 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                   >
                     {metadata.series.map((s) => (
                       <option key={s.seriesInstanceUID} value={String(s.seriesNumber)}>
-                        #{s.seriesNumber} — {s.seriesDescription || 'No description'} ({s.slices.length}, {s.anatomicalPlane})
+                        #{s.seriesNumber} — {s.seriesDescription || t('plan.noDescription')} ({s.slices.length}, {s.anatomicalPlane})
                       </option>
                     ))}
                   </select>
@@ -190,7 +192,7 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                     <button
                       onClick={() => removeRow(idx)}
                       className="p-0.5 rounded hover:bg-neutral-700 text-neutral-500 hover:text-red-400"
-                      title="Remove series"
+                      title={t('plan.removeSeries')}
                     >
                       <X className="w-3 h-3" />
                     </button>
@@ -200,7 +202,7 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                 {/* Controls row */}
                 <div className="flex items-center gap-2 flex-wrap pl-1">
                   <div className="flex items-center gap-1">
-                    <label className="text-[9px] text-neutral-500">Range</label>
+                    <label className="text-[9px] text-neutral-500">{t('plan.range')}</label>
                     <input
                       type="number"
                       value={row.rangeStart}
@@ -220,7 +222,7 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                     />
                   </div>
                   <div className="flex items-center gap-1">
-                    <label className="text-[9px] text-neutral-500">N</label>
+                    <label className="text-[9px] text-neutral-500">{t('plan.n')}</label>
                     <input
                       type="number"
                       value={row.numSlices}
@@ -232,14 +234,14 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
                     <span className="text-[9px] text-neutral-500">/ {Math.min(rangeSize, 20)}</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <label className="text-[9px] text-neutral-500">C:</label>
+                    <label className="text-[9px] text-neutral-500">{t('plan.c')}</label>
                     <input
                       type="number"
                       value={row.windowCenter}
                       onChange={(e) => updateRow(idx, { windowCenter: parseInt(e.target.value) || 0 })}
                       className="w-12 bg-neutral-900 border border-neutral-700 rounded px-1 py-0.5 text-[11px] text-neutral-100 outline-none focus:border-blue-500"
                     />
-                    <label className="text-[9px] text-neutral-500">W:</label>
+                    <label className="text-[9px] text-neutral-500">{t('plan.w')}</label>
                     <input
                       type="number"
                       value={row.windowWidth}
@@ -256,10 +258,10 @@ export default function PlanPreviewCard({ plan, metadata, onAccept, onCancel }: 
           {/* Total count */}
           <div className="flex items-center justify-between pt-1 border-t border-neutral-700/30">
             <span className={`text-[10px] ${totalSlices > 20 ? 'text-red-400 font-medium' : 'text-neutral-500'}`}>
-              Total: {totalSlices} / 20 images
+              {t('plan.totalImages', { total: totalSlices })}
             </span>
             {totalSlices > 20 && (
-              <span className="text-[10px] text-red-400">Reduce to fit budget</span>
+              <span className="text-[10px] text-red-400">{t('plan.reduceToFit')}</span>
             )}
           </div>
         </div>

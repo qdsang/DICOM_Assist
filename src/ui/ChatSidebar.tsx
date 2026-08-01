@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare } from 'lucide-react';
 import type { ChatMessage, SelectionPlan } from '../llm/types';
 import type { StudyMetadata } from '../dicom/types';
@@ -45,6 +46,7 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
   onClose,
   onNavigateToSlice,
 }, ref) {
+  const { t } = useTranslation();
   const [input, setInput] = useState('');
   const [surveyActive, setSurveyActive] = useState(false);
   const [selectedStructures, setSelectedStructures] = useState<Set<string>>(new Set());
@@ -105,12 +107,12 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
     <div className="w-96 h-full bg-neutral-900 border-l border-neutral-700 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700 shrink-0">
-        <span className="text-sm font-medium text-neutral-200">Analysis Chat</span>
+        <span className="text-sm font-medium text-neutral-200">{t('chat.title')}</span>
         <div className="flex items-center gap-1">
           {messages.length > 0 && (
             <button
               onClick={onClear}
-              title="Clear chat"
+              title={t('chat.clearChat')}
               className="p-1 rounded hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200"
             >
               <Trash2 className="w-3.5 h-3.5" />
@@ -150,8 +152,8 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
             />
           ) : (
             <div className="text-center text-neutral-500 text-xs mt-8">
-              <p>No analysis yet.</p>
-              <p className="mt-1">Describe the clinical context below to start.</p>
+              <p>{t('chat.noAnalysis')}</p>
+              <p className="mt-1">{t('chat.describeToStart')}</p>
             </div>
           )
         )}
@@ -202,7 +204,7 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
 
       {/* Disclaimer */}
       <div className="px-3 py-1 text-[10px] text-neutral-600 text-center shrink-0">
-        Not for clinical diagnosis
+        {t('chat.notForClinical')}
       </div>
 
       {/* Input */}
@@ -214,7 +216,7 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={messages.length > 0 ? 'Ask a follow-up...' : 'Describe clinical context...'}
+            placeholder={messages.length > 0 ? t('chat.askFollowUp') : t('chat.describeContext')}
             disabled={busy}
             className="flex-1 bg-transparent text-sm text-neutral-100 placeholder-neutral-500 outline-none disabled:opacity-50"
           />
@@ -248,6 +250,7 @@ function SurveyModePanel({
   onToggleStructure,
   onRunSurvey,
 }: SurveyModePanelProps) {
+  const { t } = useTranslation();
   const selectedCount = selectedStructures.size;
 
   return (
@@ -263,7 +266,7 @@ function SurveyModePanel({
           }`}
         >
           <MessageSquare className="w-3.5 h-3.5" />
-          Free Text
+          {t('chat.freeText')}
         </button>
         <button
           onClick={() => onToggleSurvey(true)}
@@ -274,20 +277,20 @@ function SurveyModePanel({
           }`}
         >
           <ClipboardList className="w-3.5 h-3.5" />
-          Guided Survey
+          {t('chat.guidedSurvey')}
         </button>
       </div>
 
       {!surveyActive && (
         <div className="text-center text-neutral-500 text-xs">
-          <p>Describe the clinical context below to start.</p>
+          <p>{t('chat.describeToStart')}</p>
         </div>
       )}
 
       {surveyActive && (
         <div className="space-y-2">
           <div className="text-xs text-neutral-400">
-            Detected: <span className="text-neutral-200 font-medium">{checklist.displayName}</span>
+            {t('chat.detected')} <span className="text-neutral-200 font-medium">{checklist.displayName}</span>
           </div>
 
           {/* Structure checklist */}
@@ -314,7 +317,7 @@ function SurveyModePanel({
             disabled={selectedCount === 0}
             className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-500 disabled:bg-neutral-700 disabled:text-neutral-500 text-white text-xs font-medium transition-colors"
           >
-            Run Survey ({selectedCount} structure{selectedCount !== 1 ? 's' : ''})
+            {t('chat.runSurvey', { count: selectedCount })}
           </button>
         </div>
       )}

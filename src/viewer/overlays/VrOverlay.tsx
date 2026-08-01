@@ -1,4 +1,5 @@
 import { VR_BLEND_OPTIONS, VR_PRESETS_CT, VR_PRESETS_MR, type VrBlend } from '../constants';
+import { useTranslation } from 'react-i18next';
 
 /**
  * Overlay controls for the 3D Volume Rendering viewport:
@@ -28,6 +29,7 @@ export function VrOverlay({
   onZoomOut: () => void;
   onZoomReset: () => void;
 }) {
+  const { t } = useTranslation();
   const isMR = modality?.toUpperCase().startsWith('MR') ?? false;
   const presetList = isMR ? VR_PRESETS_MR : VR_PRESETS_CT;
   // Always include the active preset even if it's from the "other" modality list,
@@ -43,10 +45,10 @@ export function VrOverlay({
     <>
       <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5 pointer-events-none">
         <span className="text-xs font-medium text-neutral-300 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          3D
+          {t('vr.label3d')}
         </span>
         <span className="text-[10px] text-neutral-500 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-          {cropEnabled ? 'drag handles to crop' : 'drag to rotate'}
+          {cropEnabled ? t('vr.dragToCrop') : t('vr.dragToRotate')}
         </span>
       </div>
       {/* Zoom controls (left side, below the label) */}
@@ -55,19 +57,19 @@ export function VrOverlay({
           onClick={onZoomIn}
           onDoubleClick={stopDblClick}
           className="w-7 h-7 flex items-center justify-center rounded bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm cursor-pointer backdrop-blur-sm transition-colors"
-          title="Zoom in"
+          title={t('vr.zoomIn')}
         >+</button>
         <button
           onClick={onZoomOut}
           onDoubleClick={stopDblClick}
           className="w-7 h-7 flex items-center justify-center rounded bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700 text-neutral-200 text-sm cursor-pointer backdrop-blur-sm transition-colors"
-          title="Zoom out"
+          title={t('vr.zoomOut')}
         >−</button>
         <button
           onClick={onZoomReset}
           onDoubleClick={stopDblClick}
           className="w-7 h-7 flex items-center justify-center rounded bg-neutral-900/90 hover:bg-neutral-800 border border-neutral-700 text-neutral-400 text-[10px] cursor-pointer backdrop-blur-sm transition-colors"
-          title="Reset zoom"
+          title={t('vr.resetZoom')}
         >1:1</button>
       </div>
       <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5 items-end">
@@ -75,7 +77,7 @@ export function VrOverlay({
           className={selectCls}
           value={preset}
           onChange={(e) => onPresetChange(e.target.value)}
-          title="Transfer function preset"
+          title={t('vr.preset')}
         >
           {options.map((p) => (
             <option key={p} value={p}>{p}</option>
@@ -85,7 +87,7 @@ export function VrOverlay({
           className={selectCls}
           value={blend}
           onChange={(e) => onBlendChange(e.target.value as VrBlend)}
-          title="Blend mode (MinIP highlights low-density structures like cysts)"
+          title={t('vr.blendMode')}
         >
           {VR_BLEND_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
@@ -99,22 +101,22 @@ export function VrOverlay({
               ? 'bg-blue-600/80 border-blue-500 text-white'
               : 'bg-neutral-900/90 border-neutral-700 text-neutral-300 hover:bg-neutral-800'
           }`}
-          title="Crop box — drag handles to cut away skin/bone and reveal deep structures"
+          title={t('vr.cropBox')}
         >
-          ✂ Crop
+          {t('vr.crop')}
         </button>
       </div>
       {blend === 'minip' && !cropEnabled && (
         <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
           <span className="text-[10px] text-teal-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-            MinIP — low-density (cysts/fluid)
+            {t('vr.minipHint')}
           </span>
         </div>
       )}
       {cropEnabled && (
         <div className="absolute bottom-2 right-2 z-10 pointer-events-none">
           <span className="text-[10px] text-amber-400 drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)]">
-            Crop on — drag sphere handles to clip volume
+            {t('vr.cropOnHint')}
           </span>
         </div>
       )}

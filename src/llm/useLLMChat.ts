@@ -5,6 +5,7 @@ import { createLLMService } from './LLMServiceFactory';
 import { selectSlicesForSelection } from '../filtering/SliceSelector';
 import { exportSlicesToJpeg } from '../filtering/SliceExporter';
 import { logger } from '../utils/logger';
+import i18next from '../i18n';
 
 export type ChatStatus = 'idle' | 'planning' | 'awaiting-confirmation' | 'exporting' | 'analyzing' | 'following-up' | 'error';
 
@@ -48,15 +49,20 @@ interface UseLLMChatReturn {
   clearChat: () => void;
 }
 
-const STATUS_LABELS: Record<ChatStatus, string> = {
+const STATUS_KEYS: Record<ChatStatus, string> = {
   idle: '',
-  planning: 'Analyzing metadata...',
-  'awaiting-confirmation': 'Review selection plan...',
-  exporting: 'Preparing images...',
-  analyzing: 'Generating analysis...',
-  'following-up': 'Thinking...',
-  error: 'Error',
+  planning: 'status.planning',
+  'awaiting-confirmation': 'status.awaitingConfirmation',
+  exporting: 'status.exporting',
+  analyzing: 'status.analyzing',
+  'following-up': 'status.followingUp',
+  error: 'status.error',
 };
+
+function getStatusLabel(status: ChatStatus): string {
+  const key = STATUS_KEYS[status];
+  return key ? i18next.t(key) : '';
+}
 
 function makeId(): string {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
@@ -217,10 +223,10 @@ export function useLLMChat(
     const textModel = providerConfig.provider === 'ollama' ? (providerConfig.ollamaTextModel || 'alibayram/medgemma:4b') : 'claude';
     const visionModel = providerConfig.provider === 'ollama' ? (providerConfig.ollamaVisionModel || 'llava:7b') : 'claude';
     const initialSteps: PipelineStep[] = [
-      { id: 'plan', label: `Selection planning (${textModel})`, status: 'pending' },
-      { id: 'select', label: 'Selecting slices', status: 'pending' },
-      { id: 'export', label: 'Exporting images', status: 'pending' },
-      { id: 'analyze', label: `Analyzing images (${visionModel})`, status: 'pending' },
+      { id: 'plan', label: i18next.t('pipelineSteps.planning', { model: textModel }), status: 'pending' },
+      { id: 'select', label: i18next.t('pipelineSteps.selecting'), status: 'pending' },
+      { id: 'export', label: i18next.t('pipelineSteps.exporting'), status: 'pending' },
+      { id: 'analyze', label: i18next.t('pipelineSteps.analyzing', { model: visionModel }), status: 'pending' },
     ];
     setPipeline({ steps: initialSteps, plan: null, sliceCount: 0, totalSlices: 0, exportedSizes: [], sliceMappings: [] });
 
@@ -240,7 +246,7 @@ export function useLLMChat(
       const t0 = performance.now();
       setPipeline((p) => p && ({
         ...p,
-        steps: updateStep(p.steps, 'plan', { status: 'active', detail: 'Sending metadata to LLM...' }),
+        steps: updateStep(p.steps, 'plan', { status: 'active', detail: i18next.t('pipelineSteps.sendingMetadata') }),
       }));
 
       logger.group('[DICOMassist] Analysis Pipeline');
@@ -287,7 +293,7 @@ export function useLLMChat(
     } catch (err) {
       logger.groupEnd();
       if (abortRef.current) return;
-      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      const msg = err instanceof Error ? err.message : i18next.t('errors.unexpected');
       setError(msg);
       setStatus('error');
     }
@@ -322,7 +328,7 @@ export function useLLMChat(
       // Step 2: Select slices across all series
       setPipeline((p) => p && ({
         ...p,
-        steps: updateStep(p.steps, 'select', { status: 'active', detail: `Selecting from ${adjustedPlan.selections.length} series...` }),
+        steps: updateStep(p.steps, 'select', { status: 'active', detail: i18next.t('pipelineSteps.selectingFrom', { count: adjustedPlan.selections.length }) }),
       }));
 
       const allMappings: SliceMapping[] = [];
@@ -351,7 +357,7 @@ export function useLLMChat(
 
         setPipeline((p) => p && ({
           ...p,
-          steps: updateStep(p.steps, 'export', { status: 'active', detail: `Rendering Series #${sel.seriesNumber} (${selectedSlices.length} slices, W:${sel.windowWidth} C:${sel.windowCenter})...` }),
+          steps: updateStep(p.steps, 'export', { status: 'active', detail: i18next.t('pipelineSteps.renderingSeries', { n: sel.seriesNumber, count: selectedSlices.length, w: sel.windowWidth, c: sel.windowCenter }) }),
         }));
 
         const exported = await exportSlicesToJpeg(selectedSlices, sel.windowCenter, sel.windowWidth);
@@ -381,12 +387,12 @@ export function useLLMChat(
         logger.groupEnd();
         setPipeline((p) => p && ({
           ...p,
-          steps: updateStep(p.steps, 'select', { status: 'error', detail: 'No slices matched' }),
+          steps: updateStep(p.steps, 'select', { status: 'error', detail: i18next.t('pipelineSteps.noSlicesMatched') }),
         }));
-        throw new Error('No slices matched the selection plan. Try a different prompt.');
+        throw new Error(i18next.t('errors.noSlicesMatched'));
       }
 
-      const sliceDetail = `${totalSelectedCount} slices from ${adjustedPlan.selections.length} series`;
+      const sliceDetail = i18next.t('pipelineSteps.sliceDetail', { count: totalSelectedCount, series: adjustedPlan.selections.length });
       setPipeline((p) => p && ({
         ...p,
         sliceCount: totalSelectedCount,
@@ -405,7 +411,7 @@ export function useLLMChat(
         sliceMappings: allMappings,
         steps: updateStep(p.steps, 'export', {
           status: 'done',
-          detail: `${allBlobs.length} images (${(totalSize / 1024).toFixed(0)}KB total)`,
+          detail: i18next.t('pipelineSteps.exportDone', { count: allBlobs.length, size: (totalSize / 1024).toFixed(0) }),
           durationMs: Math.round(t3 - t2),
         }),
       }));
@@ -415,7 +421,7 @@ export function useLLMChat(
       const t4 = performance.now();
       setPipeline((p) => p && ({
         ...p,
-        steps: updateStep(p.steps, 'analyze', { status: 'active', detail: `Sending ${allBlobs.length} images to LLM...` }),
+        steps: updateStep(p.steps, 'analyze', { status: 'active', detail: i18next.t('pipelineSteps.sendingImages', { count: allBlobs.length }) }),
       }));
 
       const sliceLabels = allMappings.map((m) => m.label);
@@ -431,7 +437,7 @@ export function useLLMChat(
         ...p,
         steps: updateStep(p.steps, 'analyze', {
           status: 'done',
-          detail: `Response received`,
+          detail: i18next.t('pipelineSteps.responseReceived'),
           durationMs: Math.round(t5 - t4),
         }),
       }));
@@ -447,7 +453,7 @@ export function useLLMChat(
     } catch (err) {
       logger.groupEnd();
       if (abortRef.current) return;
-      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      const msg = err instanceof Error ? err.message : i18next.t('errors.unexpected');
       setError(msg);
       setStatus('error');
     }
@@ -496,7 +502,7 @@ export function useLLMChat(
       setMessages((prev) => [...prev, assistantMsg]);
       setStatus('idle');
     } catch (err) {
-      const msg = err instanceof Error ? err.message : 'An unexpected error occurred';
+      const msg = err instanceof Error ? err.message : i18next.t('errors.unexpected');
       setError(msg);
       setStatus('error');
     }
@@ -515,7 +521,7 @@ export function useLLMChat(
   return {
     messages,
     status,
-    statusText: STATUS_LABELS[status],
+    statusText: getStatusLabel(status),
     error,
     currentPlan,
     pipeline,

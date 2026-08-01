@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { X, CheckCircle, XCircle, Loader2, Download, ChevronDown, Copy, Check, RefreshCw } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { X, CheckCircle, XCircle, Loader2, Download, ChevronDown, Copy, Check, RefreshCw, Globe } from 'lucide-react';
 import type { ProviderConfig, ProviderType } from '../llm/types';
 import {
   pingOllama,
@@ -9,6 +10,7 @@ import {
   DEFAULT_CLAUDE_MODEL,
   type OllamaModelInfo,
 } from '../llm/LLMServiceFactory';
+import { setLocale, type AppLocale } from '../i18n';
 
 interface SettingsPanelProps {
   open: boolean;
@@ -38,6 +40,7 @@ function formatSize(bytes: number): string {
 }
 
 export default function SettingsPanel({ open, onClose, config, onConfigChange }: SettingsPanelProps) {
+  const { t, i18n } = useTranslation();
   const [ollamaStatus, setOllamaStatus] = useState<'unknown' | 'checking' | 'online' | 'offline'>('unknown');
   const [installedModels, setInstalledModels] = useState<OllamaModelInfo[]>([]);
   const [pulling, setPulling] = useState<{ model: string; status: string; percent: number | null } | null>(null);
@@ -77,7 +80,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
   }, [open, config.provider, refreshModels]);
 
   const handlePull = async (modelName: string) => {
-    setPulling({ model: modelName, status: 'Starting...', percent: null });
+    setPulling({ model: modelName, status: t('settings.starting'), percent: null });
     const success = await pullOllamaModel(
       modelName,
       (status, percent) => setPulling({ model: modelName, status, percent }),
@@ -111,16 +114,42 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-700 shrink-0">
-          <span className="text-sm font-medium text-neutral-200">LLM Settings</span>
+          <span className="text-sm font-medium text-neutral-200">{t('settings.header')}</span>
           <button onClick={onClose} className="p-0.5 rounded hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200">
             <X className="w-4 h-4" />
           </button>
         </div>
 
         <div className="overflow-y-auto p-4 space-y-4">
+          {/* Language */}
+          <div>
+            <label className="text-xs text-neutral-400 block mb-1.5 flex items-center gap-1.5">
+              <Globe className="w-3.5 h-3.5" />
+              {t('settings.language')}
+            </label>
+            <div className="flex bg-neutral-900 rounded-lg p-0.5">
+              <button
+                onClick={() => setLocale('en')}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  i18n.language === 'en' ? 'bg-blue-600 text-white' : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                {t('settings.languageEn')}
+              </button>
+              <button
+                onClick={() => setLocale('zh-CN' as AppLocale)}
+                className={`flex-1 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                  i18n.language === 'zh-CN' ? 'bg-blue-600 text-white' : 'text-neutral-400 hover:text-neutral-200'
+                }`}
+              >
+                {t('settings.languageZh')}
+              </button>
+            </div>
+          </div>
+
           {/* Provider Toggle */}
           <div>
-            <label className="text-xs text-neutral-400 block mb-1.5">Provider</label>
+            <label className="text-xs text-neutral-400 block mb-1.5">{t('settings.provider')}</label>
             <div className="flex bg-neutral-900 rounded-lg p-0.5">
               <button
                 onClick={() => setProvider('claude')}
@@ -136,7 +165,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   config.provider === 'ollama' ? 'bg-blue-600 text-white' : 'text-neutral-400 hover:text-neutral-200'
                 }`}
               >
-                Ollama (Local)
+                {t('settings.ollamaLocal')}
               </button>
             </div>
           </div>
@@ -145,7 +174,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
           {config.provider === 'claude' && (
             <>
               <div>
-                <label className="text-xs text-neutral-400 block mb-1.5">API Key</label>
+                <label className="text-xs text-neutral-400 block mb-1.5">{t('settings.apiKey')}</label>
                 <input
                   type="password"
                   value={config.apiKey ?? ''}
@@ -154,11 +183,11 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500"
                 />
                 <p className="text-[10px] text-neutral-500 mt-1">
-                  Stored in localStorage only. Never sent to our servers.
+                  {t('settings.apiKeyHint')}
                 </p>
               </div>
               <div>
-                <label className="text-xs text-neutral-400 block mb-1.5">API URL</label>
+                <label className="text-xs text-neutral-400 block mb-1.5">{t('settings.apiUrl')}</label>
                 <input
                   type="text"
                   value={config.claudeApiUrl ?? ''}
@@ -167,11 +196,11 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500 font-mono"
                 />
                 <p className="text-[10px] text-neutral-500 mt-1">
-                  Leave empty to use the default Anthropic endpoint. Set to a proxy URL if you can't access Anthropic directly.
+                  {t('settings.apiUrlHint')}
                 </p>
               </div>
               <div>
-                <label className="text-xs text-neutral-400 block mb-1.5">Model</label>
+                <label className="text-xs text-neutral-400 block mb-1.5">{t('settings.model')}</label>
                 <input
                   type="text"
                   value={config.claudeModel ?? ''}
@@ -180,7 +209,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   className="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 placeholder-neutral-600 outline-none focus:border-blue-500 font-mono"
                 />
                 <p className="text-[10px] text-neutral-500 mt-1">
-                  Leave empty to use {DEFAULT_CLAUDE_MODEL}. Other options: claude-opus-4-5-20250929, claude-haiku-4-5-20251001.
+                  {t('settings.modelHint', { model: DEFAULT_CLAUDE_MODEL })}
                 </p>
               </div>
             </>
@@ -194,27 +223,27 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                 {ollamaStatus === 'checking' && (
                   <>
                     <Loader2 className="w-3.5 h-3.5 text-blue-400 animate-spin" />
-                    <span className="text-neutral-400">Connecting...</span>
+                    <span className="text-neutral-400">{t('settings.ollamaConnecting')}</span>
                   </>
                 )}
                 {ollamaStatus === 'online' && (
                   <>
                     <CheckCircle className="w-3.5 h-3.5 text-green-400" />
-                    <span className="text-green-400">Ollama running</span>
-                    <span className="text-neutral-500">({installedModels.length} model{installedModels.length !== 1 ? 's' : ''})</span>
+                    <span className="text-green-400">{t('settings.ollamaRunning')}</span>
+                    <span className="text-neutral-500">{t('settings.modelsCount', { count: installedModels.length })}</span>
                   </>
                 )}
                 {ollamaStatus === 'offline' && (
                   <>
                     <XCircle className="w-3.5 h-3.5 text-red-400" />
-                    <span className="text-red-400">Ollama not running</span>
+                    <span className="text-red-400">{t('settings.ollamaNotRunning')}</span>
                   </>
                 )}
                 <button
                   onClick={refreshModels}
                   className="text-neutral-500 hover:text-neutral-300 ml-auto text-xs"
                 >
-                  Refresh
+                  {t('common.refresh')}
                 </button>
               </div>
 
@@ -224,7 +253,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
 
               {/* Ollama URL */}
               <div>
-                <label className="text-xs text-neutral-400 block mb-1.5">Ollama URL</label>
+                <label className="text-xs text-neutral-400 block mb-1.5">{t('settings.ollamaUrl')}</label>
                 <input
                   type="text"
                   value={config.ollamaUrl ?? 'http://localhost:11434'}
@@ -239,7 +268,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   {/* Text Model (Call 1) */}
                   <div>
                     <label className="text-xs text-neutral-400 block mb-1.5">
-                      Text Model <span className="text-neutral-600">(Call 1: slice planning)</span>
+                      {t('settings.textModel')} <span className="text-neutral-600">({t('settings.textModelHint')})</span>
                     </label>
                     <ModelDropdown
                       value={textModel}
@@ -251,7 +280,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                   {/* Vision Model (Call 2) */}
                   <div>
                     <label className="text-xs text-neutral-400 block mb-1.5">
-                      Vision Model <span className="text-neutral-600">(Call 2: image analysis)</span>
+                      {t('settings.visionModel')} <span className="text-neutral-600">({t('settings.visionModelHint')})</span>
                     </label>
                     <ModelDropdown
                       value={visionModel}
@@ -262,7 +291,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
 
                   {/* Recommended Models */}
                   <div>
-                    <label className="text-xs text-neutral-400 block mb-2">Available Models</label>
+                    <label className="text-xs text-neutral-400 block mb-2">{t('settings.availableModels')}</label>
                     <div className="space-y-1.5">
                       {RECOMMENDED_MODELS.map((rm) => {
                         const installed = isInstalled(rm.name);
@@ -289,7 +318,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                                 className="shrink-0 flex items-center gap-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-medium disabled:opacity-30"
                               >
                                 <Download className="w-3 h-3" />
-                                Pull
+                                {t('common.pull')}
                               </button>
                             )}
                             {isPulling && (
@@ -311,7 +340,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                                         : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'
                                     }`}
                                   >
-                                    Text
+                                    {t('common.text')}
                                   </button>
                                 )}
                                 {(rm.role === 'vision' || rm.role === 'both') && (
@@ -323,7 +352,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
                                         : 'bg-neutral-700 text-neutral-400 hover:text-neutral-200'
                                     }`}
                                   >
-                                    Vision
+                                    {t('common.vision')}
                                   </button>
                                 )}
                               </div>
@@ -364,6 +393,7 @@ export default function SettingsPanel({ open, onClose, config, onConfigChange }:
 // --- Offline Help ---
 
 function OllamaOfflineHelp({ onRetry }: { onRetry: () => void }) {
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [polling, setPolling] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -397,7 +427,7 @@ function OllamaOfflineHelp({ onRetry }: { onRetry: () => void }) {
   return (
     <div className="bg-neutral-900 rounded-lg px-3 py-3 space-y-2.5">
       <div className="text-xs text-neutral-400">
-        Ollama is not running. Start it in your terminal:
+        {t('settings.offlineTitle')}
       </div>
       <div className="flex items-center gap-2">
         <code className="flex-1 bg-neutral-950 text-neutral-200 font-mono text-xs px-3 py-1.5 rounded">
@@ -406,7 +436,7 @@ function OllamaOfflineHelp({ onRetry }: { onRetry: () => void }) {
         <button
           onClick={copyCommand}
           className="p-1.5 rounded bg-neutral-700 hover:bg-neutral-600 text-neutral-300 transition-colors"
-          title="Copy command"
+          title={t('settings.copyCommand')}
         >
           {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
         </button>
@@ -418,17 +448,17 @@ function OllamaOfflineHelp({ onRetry }: { onRetry: () => void }) {
             className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs font-medium transition-colors"
           >
             <RefreshCw className="w-3 h-3" />
-            Wait for Ollama...
+            {t('settings.waitForOllama')}
           </button>
         ) : (
           <div className="flex items-center gap-1.5 text-xs text-blue-400">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
-            Waiting for Ollama to start...
+            {t('settings.waitingForOllama')}
           </div>
         )}
       </div>
       <div className="text-[10px] text-neutral-600">
-        Don't have Ollama? <a href="https://ollama.com/download" target="_blank" rel="noopener" className="text-blue-500 hover:text-blue-400 underline">Download it here</a>
+        {t('settings.noOllama')} <a href="https://ollama.com/download" target="_blank" rel="noopener" className="text-blue-500 hover:text-blue-400 underline">{t('settings.downloadHere')}</a>
       </div>
     </div>
   );
@@ -451,6 +481,7 @@ function ModelDropdown({
   models: OllamaModelInfo[];
   onChange: (model: string) => void;
 }) {
+  const { t } = useTranslation();
   const [dropOpen, setDropOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -492,7 +523,7 @@ function ModelDropdown({
             </button>
           ))}
           {models.length === 0 && (
-            <div className="px-3 py-2 text-xs text-neutral-500">No models installed</div>
+            <div className="px-3 py-2 text-xs text-neutral-500">{t('settings.noModelsInstalled')}</div>
           )}
         </div>
       )}

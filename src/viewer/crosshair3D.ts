@@ -37,7 +37,7 @@ function makeLineActor(src: vtkLineSource): vtkActor {
   actor.setMapper(mapper);
   const prop = actor.getProperty();
   prop.setColor(LINE_COLOR[0], LINE_COLOR[1], LINE_COLOR[2]);
-  prop.setLineWidth(2);
+  prop.setLineWidth(3);
   return actor;
 }
 

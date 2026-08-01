@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Upload, FolderOpen, FlaskConical, Loader2 } from 'lucide-react';
 import cornerstoneDICOMImageLoader from '@cornerstonejs/dicom-image-loader';
 import dicomParser from 'dicom-parser';
@@ -76,6 +77,7 @@ async function getAllFiles(dataTransfer: DataTransfer): Promise<File[]> {
 const PARSE_BATCH_SIZE = 20;
 
 export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
+  const { t } = useTranslation();
   const [dragOver, setDragOver] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingPhase, setLoadingPhase] = useState<'reading' | 'sorting'>('reading');
@@ -158,7 +160,11 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
         (s) => s.seriesInstanceUID === studyMetadata.primarySeriesUID
       );
       const imageIds = primarySeries ? primarySeries.slices.map((s) => s.imageId) : records.map((r) => r.imageId);
-      const primaryAxis: AnatomicalPlane = primarySeries?.anatomicalPlane ?? 'axial';
+      const detectedPlane = primarySeries?.anatomicalPlane;
+      const primaryAxis: AnatomicalPlane =
+        detectedPlane === 'axial' || detectedPlane === 'sagittal' || detectedPlane === 'coronal'
+          ? detectedPlane
+          : 'axial';
 
       setLoading(false);
       onFilesLoaded({ imageIds, primaryAxis, studyMetadata });
@@ -217,7 +223,7 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
       await processFiles(files);
     } catch (err) {
       setSampleProgress(null);
-      setSampleError(err instanceof Error ? err.message : 'Failed to load sample data');
+      setSampleError(err instanceof Error ? err.message : t('dropzone.loadFailed'));
     }
   }, [processFiles]);
 
@@ -227,8 +233,8 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-neutral-400 text-sm">
           {loadingPhase === 'reading'
-            ? `Reading DICOM headers... ${progress.loaded} / ${progress.total}`
-            : `Sorting slices...`}
+            ? t('dropzone.readingHeaders', { loaded: progress.loaded, total: progress.total })
+            : t('dropzone.sortingSlices')}
         </p>
         <div className="w-64 h-2 bg-neutral-800 rounded-full overflow-hidden">
           <div
@@ -243,10 +249,10 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
   const sampleBusy = sampleProgress != null;
   const sampleLabel = sampleProgress
     ? sampleProgress.phase === 'downloading'
-      ? `Downloading... ${sampleProgress.percent}%`
+      ? t('dropzone.downloading', { percent: sampleProgress.percent })
       : sampleProgress.phase === 'extracting'
-        ? `Extracting... ${sampleProgress.percent}%`
-        : 'Loading into viewer...'
+        ? t('dropzone.extracting', { percent: sampleProgress.percent })
+        : t('dropzone.loadingIntoViewer')
     : null;
 
   return (
@@ -259,8 +265,8 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
       }`}
     >
       <Upload className="w-12 h-12 text-neutral-500 mb-3" />
-      <p className="text-neutral-400 text-lg">Drop DICOM files or folder here</p>
-      <p className="text-neutral-600 text-sm mt-1">Supports .dcm files and DICOM directories</p>
+      <p className="text-neutral-400 text-lg">{t('dropzone.dropHere')}</p>
+      <p className="text-neutral-600 text-sm mt-1">{t('dropzone.dropHint')}</p>
       <input
         ref={inputRef}
         type="file"
@@ -277,13 +283,13 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
         className="mt-3 flex items-center gap-2 px-4 py-2 rounded-md bg-neutral-800 text-neutral-300 hover:bg-neutral-700 hover:text-neutral-100 transition-colors text-sm disabled:opacity-50"
       >
         <FolderOpen className="w-4 h-4" />
-        Browse Folder
+        {t('dropzone.browseFolder')}
       </button>
 
       {/* Divider */}
       <div className="flex items-center gap-3 w-48 mt-4 mb-2">
         <div className="flex-1 h-px bg-neutral-700" />
-        <span className="text-xs text-neutral-600">or</span>
+        <span className="text-xs text-neutral-600">{t('dropzone.or')}</span>
         <div className="flex-1 h-px bg-neutral-700" />
       </div>
 
@@ -295,9 +301,9 @@ export default function DicomDropZone({ onFilesLoaded }: DicomDropZoneProps) {
         className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600/20 border border-blue-500/30 text-blue-300 hover:bg-blue-600/30 hover:text-blue-200 transition-colors text-sm disabled:opacity-70"
       >
         {sampleBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <FlaskConical className="w-4 h-4" />}
-        {sampleBusy ? sampleLabel : 'Try with Sample Knee MRI'}
+        {sampleBusy ? sampleLabel : t('dropzone.trySample')}
       </button>
-      <p className="text-neutral-600 text-xs mt-1">Public anonymized dataset &middot; ~32 MB</p>
+      <p className="text-neutral-600 text-xs mt-1">{t('dropzone.sampleHint')}</p>
 
       {sampleError && (
         <p className="text-red-400 text-xs mt-2">{sampleError}</p>

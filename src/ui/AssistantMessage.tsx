@@ -1,4 +1,5 @@
 import { useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Eye } from 'lucide-react';
 import type { SliceMapping } from '../llm/useLLMChat';
 
@@ -332,6 +333,7 @@ function InlineContent({
   seriesKeywords: SeriesKeyword[];
   onSliceClick: (from: number, to: number, isLegacy: boolean, seriesNumber?: string) => void;
 }) {
+  const { t } = useTranslation();
   const segments = parseSliceRefs(text);
 
   return (
@@ -357,7 +359,7 @@ function InlineContent({
                 key={i}
                 onClick={() => onSliceClick(seg.fromInstance!, seg.toInstance!, isLegacy, resolvedSeries)}
                 className="inline-flex items-center gap-0.5 px-1.5 py-0 rounded bg-blue-900/40 border border-blue-700/50 text-blue-300 hover:bg-blue-800/50 hover:text-blue-200 transition-colors text-xs font-medium mx-0.5 cursor-pointer"
-                title={`Go to ${seg.content}${resolvedSeries ? ` (Series #${resolvedSeries})` : ''} in viewer`}
+                title={resolvedSeries ? t('chat.goToSliceWithSeries', { content: seg.content, series: resolvedSeries }) : t('chat.goToSlice', { content: seg.content })}
               >
                 <Eye className="w-3 h-3" />
                 {seg.content}

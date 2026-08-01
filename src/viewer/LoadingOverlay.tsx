@@ -1,9 +1,12 @@
+import { useTranslation } from 'react-i18next';
+
 interface LoadingOverlayProps {
   loaded: number;
   total: number;
 }
 
 export default function LoadingOverlay({ loaded, total }: LoadingOverlayProps) {
+  const { t } = useTranslation();
   if (loaded >= total) return null;
 
   const pct = total > 0 ? Math.round((loaded / total) * 100) : 0;
@@ -17,7 +20,7 @@ export default function LoadingOverlay({ loaded, total }: LoadingOverlayProps) {
         />
       </div>
       <span className="text-xs text-neutral-400 tabular-nums">
-        Caching {loaded}/{total}
+        {t('loading.caching', { loaded, total })}
       </span>
     </div>
   );

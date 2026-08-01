@@ -1,4 +1,5 @@
 import type { SeriesMetadata } from '../dicom/types';
+import { useTranslation } from 'react-i18next';
 
 interface EmptyViewportOverlayProps {
   availableSeries: SeriesMetadata[];
@@ -7,13 +8,14 @@ interface EmptyViewportOverlayProps {
 }
 
 export default function EmptyViewportOverlay({ availableSeries, onSelect, onClose }: EmptyViewportOverlayProps) {
+  const { t } = useTranslation();
   // Filter out scouts
   const clinical = availableSeries.filter((s) => !s.isScout);
 
   if (clinical.length === 0) {
     return (
       <div className="absolute inset-0 z-20 flex items-center justify-center bg-neutral-900/90">
-        <span className="text-xs text-neutral-500">No series available</span>
+        <span className="text-xs text-neutral-500">{t('emptyOverlay.noSeries')}</span>
       </div>
     );
   }
@@ -23,7 +25,7 @@ export default function EmptyViewportOverlay({ availableSeries, onSelect, onClos
       <div className="w-56 max-h-[80%] overflow-y-auto rounded-lg bg-neutral-800 border border-neutral-700 shadow-xl">
         <div className="px-3 py-2 border-b border-neutral-700 flex items-center justify-between">
           <span className="text-xs font-medium text-neutral-300">
-            {onClose ? 'Switch series' : 'Load series'}
+            {onClose ? t('emptyOverlay.switchSeries') : t('emptyOverlay.loadSeries')}
           </span>
           {onClose && (
             <button
@@ -44,10 +46,10 @@ export default function EmptyViewportOverlay({ availableSeries, onSelect, onClos
                 className="w-full px-3 py-1.5 text-left hover:bg-neutral-700 transition-colors"
               >
                 <div className="text-xs text-neutral-200 truncate">
-                  #{s.seriesNumber} {s.seriesDescription || 'Unnamed'}
+                  #{s.seriesNumber} {s.seriesDescription || t('common.unnamed')}
                 </div>
                 <div className="text-[10px] text-neutral-500">
-                  {plane} &middot; {s.slices.length} slices
+                  {t('emptyOverlay.seriesInfo', { plane, count: s.slices.length })}
                 </div>
               </button>
             );

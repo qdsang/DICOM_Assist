@@ -7,8 +7,16 @@ import {
   buildAnalysisUserPrompt,
   buildFollowUpSystemPrompt,
 } from './PromptBuilder';
+import i18next from '../i18n';
 
 // --- Shared Helpers ---
+
+type SamplingStrategy = 'every_nth' | 'uniform' | 'all';
+
+function coerceSamplingStrategy(value: unknown): SamplingStrategy {
+  if (value === 'every_nth' || value === 'uniform' || value === 'all') return value;
+  return 'uniform';
+}
 
 function extractJson(text: string): string {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -37,7 +45,7 @@ function parseSeriesSelection(raw: Record<string, unknown>): SeriesSelection {
     role: (raw.role as string) === 'supplementary' ? 'supplementary' : 'primary',
     rationale: String(raw.rationale ?? ''),
     sliceRange: [Number((raw.sliceRange as number[])[0]), Number((raw.sliceRange as number[])[1])],
-    samplingStrategy: (raw.samplingStrategy as string) ?? 'uniform',
+    samplingStrategy: coerceSamplingStrategy(raw.samplingStrategy),
     samplingParam: raw.samplingParam != null ? Number(raw.samplingParam) : undefined,
     windowWidth: Number(raw.windowWidth),
     windowCenter: Number(raw.windowCenter),
@@ -64,10 +72,7 @@ function parseSelectionPlan(raw: string): SelectionPlan {
   try {
     json = JSON.parse(extractJson(raw));
   } catch {
-    throw new Error(
-      'The LLM did not return valid JSON. This can happen with smaller models. ' +
-      'Try a more specific clinical prompt (e.g., "Evaluate for lung nodules") or switch to Claude.',
-    );
+    throw new Error(i18next.t('errors.invalidJson'));
   }
 
   // New multi-series format: { reasoning, selections: [...], totalImages }
@@ -80,10 +85,7 @@ function parseSelectionPlan(raw: string): SelectionPlan {
 
   // Legacy single-series format: { targetSeries, sliceRange, ... }
   if (!json.targetSeries || !json.sliceRange) {
-    throw new Error(
-      'The LLM response is missing required fields (targetSeries, sliceRange). ' +
-      'Try a more specific clinical prompt or a larger model.',
-    );
+    throw new Error(i18next.t('errors.missingFields'));
   }
 
   const selection: SeriesSelection = {
@@ -91,7 +93,7 @@ function parseSelectionPlan(raw: string): SelectionPlan {
     role: 'primary',
     rationale: String(json.reasoning ?? ''),
     sliceRange: [Number((json.sliceRange as number[])[0]), Number((json.sliceRange as number[])[1])],
-    samplingStrategy: (json.samplingStrategy as string) ?? 'uniform',
+    samplingStrategy: coerceSamplingStrategy(json.samplingStrategy),
     samplingParam: json.samplingParam != null ? Number(json.samplingParam) : undefined,
     windowCenter: Number(json.windowCenter),
     windowWidth: Number(json.windowWidth),
@@ -203,8 +205,8 @@ class ClaudeService implements LLMService {
 
     if (!res.ok) {
       const body = await res.text();
-      if (res.status === 401) throw new Error('Invalid API key. Check your Claude API key.');
-      throw new Error(`Claude API error (${res.status}): ${body}`);
+      if (res.status === 401) throw new Error(i18next.t('errors.invalidApiKey'));
+      throw new Error(i18next.t('errors.claudeApiError', { status: res.status, body }));
     }
 
     const data = await res.json();
@@ -280,7 +282,7 @@ class OllamaService implements LLMService {
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Ollama error (${res.status}): ${body}`);
+      throw new Error(i18next.t('errors.ollamaError', { status: res.status, body }));
     }
 
     const data = await res.json();
@@ -317,14 +319,14 @@ class OllamaService implements LLMService {
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-        throw new Error(`Ollama request timed out (5min). Model: ${params.model}. Try fewer slices or a smaller model.`);
+      throw new Error(i18next.t('errors.ollamaTimeout', { model: params.model }));
       }
-      throw new Error('Cannot connect to Ollama. Is it running? (ollama serve)');
+      throw new Error(i18next.t('errors.ollamaConnect'));
     }
 
     if (!res.ok) {
       const body = await res.text();
-      throw new Error(`Ollama error (${res.status}): ${body}`);
+      throw new Error(i18next.t('errors.ollamaError', { status: res.status, body }));
     }
 
     const data = await res.json();
@@ -343,7 +345,7 @@ export const DEFAULT_CLAUDE_MODEL = 'claude-sonnet-4-5-20250929';
 export function createLLMService(config: ProviderConfig): LLMService {
   if (config.provider === 'claude') {
     const key = config.apiKey || import.meta.env.VITE_ANTHROPIC_API_KEY;
-    if (!key) throw new Error('Claude API key is required. Enter it in Settings.');
+    if (!key) throw new Error(i18next.t('errors.claudeKeyRequired'));
     const apiUrl = config.claudeApiUrl || DEFAULT_CLAUDE_API_URL;
     const model = config.claudeModel || DEFAULT_CLAUDE_MODEL;
     return new ClaudeService(key, apiUrl, model);

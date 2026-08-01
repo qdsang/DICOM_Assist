@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { X } from 'lucide-react';
 import type { StudyMetadata, SeriesMetadata } from '../dicom/types';
 
@@ -9,6 +10,7 @@ interface SeriesBrowserProps {
 }
 
 export default function SeriesBrowser({ metadata, activeSeriesUID, onSelectSeries, onClose }: SeriesBrowserProps) {
+  const { t } = useTranslation();
   const clinicalSeries = metadata.series.filter((s) => !s.isScout);
   const scoutSeries = metadata.series.filter((s) => s.isScout);
 
@@ -17,7 +19,7 @@ export default function SeriesBrowser({ metadata, activeSeriesUID, onSelectSerie
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700">
         <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-neutral-200">Series</span>
+          <span className="text-sm font-medium text-neutral-200">{t('seriesBrowser.title')}</span>
           <span className="text-[10px] font-medium text-neutral-400 bg-neutral-800 px-1.5 py-0.5 rounded">
             {metadata.series.length}
           </span>
@@ -69,6 +71,7 @@ function SeriesItem({
   isPrimary: boolean;
   onSelect: () => void;
 }) {
+  const { t } = useTranslation();
   const plane = series.anatomicalPlane.charAt(0).toUpperCase() + series.anatomicalPlane.slice(1);
   const thickness = series.sliceThickness != null ? `${series.sliceThickness}mm` : null;
   const matrix = series.rows != null && series.columns != null ? `${series.rows}×${series.columns}` : null;
@@ -89,20 +92,20 @@ function SeriesItem({
       {/* Line 1: series number + description + badges */}
       <div className="flex items-center gap-1.5 text-xs">
         <span className={`font-medium truncate ${isActive ? 'text-blue-200' : 'text-neutral-200'}`}>
-          #{series.seriesNumber} {series.seriesDescription || '(no description)'}
+          #{series.seriesNumber} {series.seriesDescription || t('common.noDescription')}
         </span>
         {isPrimary && (
-          <span className="shrink-0 w-1.5 h-1.5 bg-green-400 rounded-full" title="Primary series" />
+          <span className="shrink-0 w-1.5 h-1.5 bg-green-400 rounded-full" title={t('seriesBrowser.primaryTooltip')} />
         )}
         {series.isScout && (
           <span className="shrink-0 text-[10px] font-medium text-neutral-400 bg-neutral-700/60 px-1 rounded">
-            Scout
+            {t('seriesBrowser.scout')}
           </span>
         )}
       </div>
       {/* Line 2: plane, slice count, thickness, matrix, weighting */}
       <div className="text-[11px] text-neutral-500 mt-0.5">
-        {plane} &middot; {series.slices.length} slices{thickness && <> &middot; {thickness}</>}
+        {t('seriesBrowser.seriesInfo', { plane, count: series.slices.length })}{thickness && <> &middot; {thickness}</>}
         {matrix && <> &middot; {matrix}</>}
         {weightingBadge && (
           <span className="ml-1 text-[10px] font-medium text-purple-400 bg-purple-900/40 px-1 rounded">
@@ -113,7 +116,7 @@ function SeriesItem({
       {/* Active badge */}
       {isActive && (
         <span className="inline-block mt-1 text-[10px] font-semibold text-blue-400 bg-blue-900/60 px-1.5 py-0 rounded">
-          Active
+          {t('seriesBrowser.active')}
         </span>
       )}
     </button>

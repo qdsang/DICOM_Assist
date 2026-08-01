@@ -16,10 +16,12 @@
     "@cornerstonejs/tools": "^4.16.1",
     "@kitware/vtk.js": "34.15.1",
     "dicom-parser": "^1.8.21",
+    "i18next": "^26.3.6",
     "jszip": "^3.10.1",
     "lucide-react": "^0.568.0",
     "react": "^19.2.0",
-    "react-dom": "^19.2.0"
+    "react-dom": "^19.2.0",
+    "react-i18next": "^17.0.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

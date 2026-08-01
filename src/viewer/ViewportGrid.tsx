@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   RenderingEngine,
   Enums,
@@ -58,6 +59,12 @@ import {
 // Re-export shared types so existing imports from this module keep working.
 export type { ActiveToolName, LayoutType, OrientationMarkerType };
 
+// `setProperties` exists on StackViewport/VolumeViewport but not on the base
+// IViewport returned by getViewports(). Narrow to the structural shape we use.
+type ViewportWithProperties = {
+  setProperties?(props: { invert?: boolean }): void;
+};
+
 /**
  * Set the 3D tool group's primary (left-click) binding:
  *  - crop on  → VolumeCroppingTool active (drag handles), rotate passive
@@ -107,12 +114,13 @@ function create3DToolGroup(renderingEngineId: string, crop: boolean): any {
 
 /** Small expand/restore button shown on each viewport cell (double-click also toggles). */
 function ExpandButton({ expanded, onClick }: { expanded: boolean; onClick: () => void }) {
+  const { t } = useTranslation();
   return (
     <button
       onClick={onClick}
       onDoubleClick={(e) => e.stopPropagation()}
       className="absolute bottom-2 right-2 z-10 w-6 h-6 flex items-center justify-center rounded bg-neutral-800/70 hover:bg-neutral-700 text-neutral-300 text-xs transition-colors"
-      title={expanded ? 'Restore layout' : 'Expand (or double-click)'}
+      title={expanded ? t('viewport.restoreLayout') : t('viewport.expandLayout')}
     >
       {expanded ? '⤡' : '⤢'}
     </button>
@@ -146,6 +154,7 @@ export default function ViewportGrid({
   invert = false, flipH = false, flipV = false, cineEnabled = false,
   studyMetadata,
 }: ViewportGridProps) {
+  const { t } = useTranslation();
   const singleRef = useRef<HTMLDivElement>(null);
   const axialRef = useRef<HTMLDivElement>(null);
   const sagittalRef = useRef<HTMLDivElement>(null);
@@ -373,7 +382,7 @@ export default function ViewportGrid({
     const engine = renderingEngineRef.current;
     if (!engine) return;
     for (const vp of engine.getViewports()) {
-      vp.setProperties({ invert });
+      (vp as ViewportWithProperties).setProperties?.({ invert });
       vp.render();
     }
   }, [invert]);
@@ -433,7 +442,7 @@ export default function ViewportGrid({
     if (!engine) return;
     const t = togglesRef.current;
     for (const vp of engine.getViewports()) {
-      if (t.invert) vp.setProperties({ invert: true });
+      if (t.invert) (vp as ViewportWithProperties).setProperties?.({ invert: true });
       if (t.flipH) vp.setCamera({ flipHorizontal: true });
       if (t.flipV) vp.setCamera({ flipVertical: true });
       vp.render();
@@ -699,11 +708,12 @@ export default function ViewportGrid({
     const onVolumeLoaded = () => {
       updateAllMprInfo();
       const engine = renderingEngineRef.current;
-      const vp3DLate = engine?.getViewport(VOLUME_3D_VP_ID);
+      if (!engine || engine.hasBeenDestroyed) return;
+      const vp3DLate = engine.getViewport(VOLUME_3D_VP_ID);
       if (vp3DLate) {
         applyVrToViewport(vp3DLate, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
         try { vp3DLate.resetCamera(); } catch { /* not ready yet */ }
-        vp3DLate.render();
+        try { vp3DLate.render(); } catch { /* engine torn down */ }
         update3DCrosshair();
       }
     };
@@ -761,20 +771,25 @@ export default function ViewportGrid({
       try {
         if (existing) {
           setCrosshair3DPosition(existing, world, bounds);
-          logger.log('[crosshair3D] updated position:', world);
         } else {
           const ch = createCrosshair3D(world, bounds);
           crosshair3DRef.current = ch;
-          // Use addActor (single) instead of addActors (array): addActors forces a
-          // resetCamera() which would snap the 3D volume's rotation back to default.
-          ch.actors.forEach((a) => {
-            (v3 as any).addActor({ uid: a.uid, actor: a.actor });
-          });
-          logger.log('[crosshair3D] created actors at:', world, 'bounds:', bounds);
+          // Add actors to the SAME renderer as the volume (not a separate overlay
+          // layer — that would show on all viewports). VR renders in the
+          // translucent pass; these actors render in the opaque pass first, then
+          // VR composites on top. The portions of the lines that extend BEYOND
+          // the volume bounds (MARGIN_RATIO) are outside the ray-cast region and
+          // remain visible.
+          const renderer = (v3 as any).getRenderer?.();
+          if (!renderer) { console.warn('[crosshair3D] no renderer'); return; }
+          ch.actors.forEach((a) => renderer.addActor(a.actor));
+          // Extend clipping range so the crosshair lines (which poke beyond the
+          // volume) aren't clipped by the camera's near/far planes.
+          try { renderer.resetCameraClippingRange(); } catch { /* */ }
+          logger.log('[crosshair3D] created actors at:', world, 'actors in renderer:', renderer.getActors().length);
         }
         v3.render();
       } catch (err) {
-        // Don't silently swallow — surface so we can diagnose actor-add failures.
         console.warn('[crosshair3D] update failed:', err);
       }
     };
@@ -784,12 +799,14 @@ export default function ViewportGrid({
     listenToViewport(coronalEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
     listenToViewport(volume3DEl, Enums.Events.CAMERA_MODIFIED, update3DCrosshair);
     eventCleanupsRef.current.push(() => {
-      // Drop the crosshair actors when tearing down so a fresh setup can re-create them.
       const engine = renderingEngineRef.current;
       const v3 = engine?.getViewport(VOLUME_3D_VP_ID);
       const ch = crosshair3DRef.current;
       if (v3 && ch) {
-        try { (v3 as any).removeActors(ch.actors.map((a) => a.uid)); } catch { /* */ }
+        try {
+          const renderer = (v3 as any).getRenderer?.();
+          if (renderer) ch.actors.forEach((a) => renderer.removeActor(a.actor));
+        } catch { /* */ }
         try { v3.render(); } catch { /* */ }
       }
       crosshair3DRef.current = null;
@@ -827,11 +844,12 @@ export default function ViewportGrid({
 
     const onVolumeLoaded = () => {
       const engine = renderingEngineRef.current;
-      const vp = engine?.getViewport(VOLUME_3D_VP_ID);
+      if (!engine || engine.hasBeenDestroyed) return;
+      const vp = engine.getViewport(VOLUME_3D_VP_ID);
       if (!vp) return;
       applyVrToViewport(vp, vrSettingsRef.current.preset, vrSettingsRef.current.blend);
       try { vp.resetCamera(); } catch { /* not ready yet */ }
-      vp.render();
+      try { vp.render(); } catch { /* engine torn down */ }
     };
     eventTarget.addEventListener(Enums.Events.IMAGE_VOLUME_LOADING_COMPLETED, onVolumeLoaded);
     eventCleanupsRef.current.push(() =>
@@ -1241,7 +1259,7 @@ export default function ViewportGrid({
                       <button
                         onClick={() => setPickingSlot(i)}
                         className="absolute top-2 right-2 z-10 w-6 h-6 flex items-center justify-center rounded bg-neutral-800/70 hover:bg-neutral-700 text-neutral-400 hover:text-neutral-200 text-xs transition-colors"
-                        title="Switch series"
+                        title={t('viewport.switchSeries')}
                       >
                         &#x21C4;
                       </button>

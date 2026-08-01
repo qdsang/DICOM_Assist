@@ -1,9 +1,21 @@
 import type { StudyMetadata, SeriesMetadata } from '../dicom/types';
 import type { SelectionPlan, ViewportContext } from './types';
+import i18next from '../i18n';
 
 const DISCLAIMER =
   'IMPORTANT: This is a research/portfolio tool, NOT for clinical diagnosis. ' +
   'All findings are for educational and demonstration purposes only.';
+
+/**
+ * Returns a language directive appended to system prompts so the LLM responds
+ * in the user's selected UI language. Medical terms may stay in English.
+ */
+function languageDirectiveLines(): string[] {
+  if (i18next.language === 'zh-CN') {
+    return ['', 'LANGUAGE: Respond in Simplified Chinese (简体中文). You may keep medical/technical terms in English.'];
+  }
+  return [];
+}
 
 function formatSeriesSummary(s: SeriesMetadata): string {
   const parts = [
@@ -73,6 +85,7 @@ export function buildSelectionSystemPrompt(): string {
   return [
     'You are a medical imaging AI assistant that helps select the most relevant DICOM slices for clinical analysis.',
     DISCLAIMER,
+    ...languageDirectiveLines(),
     '',
     '## Clinical Series Selection Guide',
     '',
@@ -278,6 +291,7 @@ export function buildAnalysisSystemPrompt(surveyMode?: boolean): string {
   return [
     'You are a medical imaging AI assistant analyzing DICOM images.',
     DISCLAIMER,
+    ...languageDirectiveLines(),
     '',
     'Analyze the provided images in the context of the clinical question and study metadata.',
     '',
@@ -393,6 +407,7 @@ export function buildFollowUpSystemPrompt(): string {
   return [
     'You are a medical imaging AI assistant continuing a conversation about DICOM image analysis.',
     DISCLAIMER,
+    ...languageDirectiveLines(),
     '',
     'You previously analyzed medical images and provided findings.',
     'Continue the conversation by answering follow-up questions based on your prior analysis.',

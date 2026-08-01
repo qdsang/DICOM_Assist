@@ -1,9 +1,11 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckCircle, Loader2, Circle, AlertCircle, ChevronDown, ChevronRight } from 'lucide-react';
 import type { SelectionPlan } from '../llm/types';
 import type { PipelineState, PipelineStep, SliceMapping } from '../llm/useLLMChat';
 
 export default function PipelineView({ pipeline }: { pipeline: PipelineState }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(true);
   const allDone = pipeline.steps.every((s) => s.status === 'done');
 
@@ -14,7 +16,7 @@ export default function PipelineView({ pipeline }: { pipeline: PipelineState }) 
         className="flex items-center gap-2 w-full px-3 py-2 text-left text-xs font-medium text-neutral-300 hover:bg-neutral-700/50"
       >
         {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
-        <span>Pipeline {allDone ? '(complete)' : ''}</span>
+        <span>{t('pipeline.title')}{allDone ? ' ' + t('pipeline.complete') : ''}</span>
         {!allDone && <Loader2 className="w-3 h-3 animate-spin text-blue-400 ml-auto" />}
       </button>
       {expanded && (
@@ -63,15 +65,17 @@ function StepRow({ step }: { step: PipelineStep }) {
 }
 
 function PlanDetail({ plan }: { plan: SelectionPlan }) {
+  const { t } = useTranslation();
   return (
     <div className="mt-1.5 ml-5.5 pl-2 border-l border-neutral-700 text-[10px] text-neutral-500 space-y-0.5">
-      <p className="text-neutral-400 font-medium">LLM reasoning:</p>
+      <p className="text-neutral-400 font-medium">{t('pipeline.llmReasoning')}</p>
       <p className="italic">{plan.reasoning}</p>
     </div>
   );
 }
 
 function SliceMappingDetail({ mappings, totalSlices }: { mappings: SliceMapping[]; totalSlices: number }) {
+  const { t } = useTranslation();
   const [showAll, setShowAll] = useState(false);
   const labels = mappings.map((m) => m.label);
   const preview = showAll ? labels : labels.slice(0, 6);
@@ -80,7 +84,7 @@ function SliceMappingDetail({ mappings, totalSlices }: { mappings: SliceMapping[
   return (
     <div className="mt-1.5 ml-5.5 pl-2 border-l border-neutral-700 text-[10px] text-neutral-500 space-y-0.5">
       <p className="text-neutral-400 font-medium">
-        Sent to vision model: {mappings.length} of {totalSlices} slices
+        {t('pipeline.sentToVision', { count: mappings.length, total: totalSlices })}
       </p>
       <div className="flex flex-wrap gap-1">
         {preview.map((label, i) => (
@@ -93,7 +97,7 @@ function SliceMappingDetail({ mappings, totalSlices }: { mappings: SliceMapping[
             onClick={() => setShowAll(true)}
             className="px-1.5 py-0.5 text-blue-400 hover:text-blue-300"
           >
-            +{labels.length - 6} more
+            {t('pipeline.moreCount', { count: labels.length - 6 })}
           </button>
         )}
       </div>

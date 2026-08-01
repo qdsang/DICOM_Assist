@@ -33,7 +33,7 @@ export async function loadSampleData(
     }
   }
 
-  const blob = new Blob(chunks);
+  const blob = new Blob(chunks as BlobPart[]);
 
   // Phase 2: Extract zip
   onProgress?.({ phase: 'extracting', percent: 0 });

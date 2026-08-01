@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import type { ActiveToolName, LayoutType, OrientationMarkerType } from './ViewportGrid';
 
 type MeasureTool = 'Length' | 'Angle' | 'EllipticalROI';
@@ -55,40 +56,40 @@ interface ToolbarProps {
 }
 
 const mainTools: { name: ActiveToolName; label: string; icon: React.ReactNode }[] = [
-  { name: 'WindowLevel', label: 'W/L', icon: <SunDim className="w-5 h-5" /> },
-  { name: 'Zoom', label: 'Zoom', icon: <ZoomIn className="w-5 h-5" /> },
-  { name: 'Pan', label: 'Pan', icon: <Move className="w-5 h-5" /> },
+  { name: 'WindowLevel', label: 'toolbar.windowLevel', icon: <SunDim className="w-5 h-5" /> },
+  { name: 'Zoom', label: 'toolbar.zoom', icon: <ZoomIn className="w-5 h-5" /> },
+  { name: 'Pan', label: 'toolbar.pan', icon: <Move className="w-5 h-5" /> },
 ];
 
 const measureTools: { name: MeasureTool; label: string; icon: React.ReactNode }[] = [
-  { name: 'Length', label: 'Length', icon: <Ruler className="w-5 h-5" /> },
-  { name: 'Angle', label: 'Angle', icon: <Triangle className="w-5 h-5" /> },
-  { name: 'EllipticalROI', label: 'Elliptical ROI', icon: <Circle className="w-5 h-5" /> },
+  { name: 'Length', label: 'toolbar.length', icon: <Ruler className="w-5 h-5" /> },
+  { name: 'Angle', label: 'toolbar.angle', icon: <Triangle className="w-5 h-5" /> },
+  { name: 'EllipticalROI', label: 'toolbar.ellipticalROI', icon: <Circle className="w-5 h-5" /> },
 ];
 
 const layouts: { name: LayoutType; label: string; icon: React.ReactNode }[] = [
-  { name: '1x1', label: '1\u00d71', icon: <Square className="w-4 h-4" /> },
-  { name: '1x2', label: '1\u00d72 Side by Side', icon: (
+  { name: '1x1', label: 'toolbar.layout1x1', icon: <Square className="w-4 h-4" /> },
+  { name: '1x2', label: 'toolbar.layout1x2', icon: (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="w-4 h-4">
       <rect x="1" y="1" width="6" height="14" rx="1" stroke="currentColor" strokeWidth="1.5" />
       <rect x="9" y="1" width="6" height="14" rx="1" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )},
-  { name: '2x1', label: '2\u00d71 Stacked', icon: (
+  { name: '2x1', label: 'toolbar.layout2x1', icon: (
     <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="w-4 h-4">
       <rect x="1" y="1" width="14" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
       <rect x="1" y="9" width="14" height="6" rx="1" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )},
-  { name: '2x2', label: '2\u00d72 Grid', icon: <Grid2x2 className="w-4 h-4" /> },
-  { name: 'mpr', label: 'MPR (Axial/Sag/Cor/3D)', icon: <Grid2x2 className="w-4 h-4" /> },
-  { name: '3d', label: '3D Volume', icon: <Box className="w-4 h-4" /> },
+  { name: '2x2', label: 'toolbar.layout2x2', icon: <Grid2x2 className="w-4 h-4" /> },
+  { name: 'mpr', label: 'toolbar.layoutMpr', icon: <Grid2x2 className="w-4 h-4" /> },
+  { name: '3d', label: 'toolbar.layout3d', icon: <Box className="w-4 h-4" /> },
 ];
 
 const markerTypes: { name: OrientationMarkerType; label: string }[] = [
-  { name: 'cube', label: 'Annotated Cube' },
-  { name: 'axes', label: 'Axes' },
-  { name: 'custom', label: 'Human Model' },
+  { name: 'cube', label: 'toolbar.markerCube' },
+  { name: 'axes', label: 'toolbar.markerAxes' },
+  { name: 'custom', label: 'toolbar.markerCustom' },
 ];
 
 /**
@@ -149,6 +150,7 @@ export default function Toolbar({
   flipV = false, onFlipVToggle,
   cineEnabled = false, onCineToggle,
 }: ToolbarProps) {
+  const { t } = useTranslation();
   const [layoutOpen, setLayoutOpen] = useState(false);
   const [markerOpen, setMarkerOpen] = useState(false);
   const [measureOpen, setMeasureOpen] = useState(false);
@@ -189,11 +191,11 @@ export default function Toolbar({
         <>
           <button
             onClick={onToggleSeriesBrowser}
-            title="Series browser"
+            title={t('toolbar.seriesBrowser')}
             className={btnClass(showSeriesBrowser)}
           >
             <Layers className="w-5 h-5" />
-            <span className="hidden sm:inline">Series</span>
+            <span className="hidden sm:inline">{t('toolbar.series')}</span>
           </button>
           <div className="w-px h-6 bg-neutral-700 mx-1" />
         </>
@@ -204,11 +206,11 @@ export default function Toolbar({
         <button
           key={tool.name}
           onClick={() => onToolChange(activeTool === tool.name && tool.name !== 'WindowLevel' ? 'WindowLevel' : tool.name)}
-          title={tool.label}
+          title={t(tool.label)}
           className={btnClass(activeTool === tool.name)}
         >
           {tool.icon}
-          <span className="hidden sm:inline">{tool.label}</span>
+          <span className="hidden sm:inline">{t(tool.label)}</span>
         </button>
       ))}
 
@@ -216,11 +218,11 @@ export default function Toolbar({
       {layout === 'mpr' && (
         <button
           onClick={() => onToolChange(activeTool === 'Crosshairs' ? 'WindowLevel' : 'Crosshairs')}
-          title="Crosshairs"
+          title={t('toolbar.crosshairs')}
           className={btnClass(activeTool === 'Crosshairs')}
         >
           <Crosshair className="w-5 h-5" />
-          <span className="hidden sm:inline">Crosshairs</span>
+          <span className="hidden sm:inline">{t('toolbar.crosshairs')}</span>
         </button>
       )}
 
@@ -234,7 +236,7 @@ export default function Toolbar({
               onToolChange(currentMeasure);
             }
           }}
-          title={activeMeasureInfo.label}
+          title={t(activeMeasureInfo.label)}
           className={`flex items-center gap-1.5 pl-3 pr-1 py-1.5 rounded-l text-sm transition-colors ${
             isMeasureActive
               ? 'bg-blue-600 text-white'
@@ -242,11 +244,11 @@ export default function Toolbar({
           }`}
         >
           {activeMeasureInfo.icon}
-          <span className="hidden sm:inline">{activeMeasureInfo.label}</span>
+          <span className="hidden sm:inline">{t(activeMeasureInfo.label)}</span>
         </button>
         <button
           onClick={() => setMeasureOpen(!measureOpen)}
-          title="More measurements"
+          title={t('toolbar.moreMeasurements')}
           className={`flex items-center px-1 py-1.5 rounded-r text-sm transition-colors ${
             isMeasureActive
               ? 'bg-blue-600 text-white'
@@ -271,7 +273,7 @@ export default function Toolbar({
               }`}
             >
               {m.icon}
-              {m.label}
+              {t(m.label)}
             </button>
           ))}
         </PortalDropdown>
@@ -282,7 +284,7 @@ export default function Toolbar({
       {/* Utility tools: Rotate */}
       <button
         onClick={() => onToolChange(activeTool === 'Rotate' ? 'WindowLevel' : 'Rotate')}
-        title="Rotate"
+        title={t('toolbar.rotate')}
         className={btnClass(activeTool === 'Rotate')}
       >
         <RotateCw className="w-5 h-5" />
@@ -290,24 +292,24 @@ export default function Toolbar({
 
       {/* Viewport toggles: Invert, Flip H, Flip V */}
       {onInvertToggle && (
-        <button onClick={onInvertToggle} title="Invert" className={toggleClass(invert)}>
+        <button onClick={onInvertToggle} title={t('toolbar.invert')} className={toggleClass(invert)}>
           <Contrast className="w-5 h-5" />
         </button>
       )}
       {onFlipHToggle && (
-        <button onClick={onFlipHToggle} title="Flip Horizontal" className={toggleClass(flipH)}>
+        <button onClick={onFlipHToggle} title={t('toolbar.flipHorizontal')} className={toggleClass(flipH)}>
           <FlipHorizontal className="w-5 h-5" />
         </button>
       )}
       {onFlipVToggle && (
-        <button onClick={onFlipVToggle} title="Flip Vertical" className={toggleClass(flipV)}>
+        <button onClick={onFlipVToggle} title={t('toolbar.flipVertical')} className={toggleClass(flipV)}>
           <FlipVertical className="w-5 h-5" />
         </button>
       )}
 
       {/* Cine play/pause */}
       {onCineToggle && (
-        <button onClick={onCineToggle} title={cineEnabled ? 'Stop Cine' : 'Play Cine'} className={toggleClass(cineEnabled)}>
+        <button onClick={onCineToggle} title={cineEnabled ? t('toolbar.stopCine') : t('toolbar.playCine')} className={toggleClass(cineEnabled)}>
           {cineEnabled ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
         </button>
       )}
@@ -316,11 +318,11 @@ export default function Toolbar({
 
       <button
         onClick={onReset}
-        title="Reset viewport"
+        title={t('toolbar.resetViewport')}
         className={btnClass()}
       >
         <RotateCcw className="w-5 h-5" />
-        <span className="hidden sm:inline">Reset</span>
+        <span className="hidden sm:inline">{t('toolbar.reset')}</span>
       </button>
 
       <div className="w-px h-6 bg-neutral-700 mx-1" />
@@ -329,11 +331,11 @@ export default function Toolbar({
       <button
         ref={layoutBtnRef}
         onClick={() => setLayoutOpen(!layoutOpen)}
-        title="Layout"
+        title={t('toolbar.layout')}
         className={btnClass()}
       >
         <LayoutGrid className="w-5 h-5" />
-        <span className="hidden sm:inline">Layout</span>
+        <span className="hidden sm:inline">{t('toolbar.layout')}</span>
       </button>
       <PortalDropdown anchorRef={layoutBtnRef} open={layoutOpen} onClose={() => setLayoutOpen(false)}>
         {layouts.map((l) => (
@@ -350,7 +352,7 @@ export default function Toolbar({
             }`}
           >
             {l.icon}
-            {l.label}
+            {t(l.label)}
           </button>
         ))}
       </PortalDropdown>
@@ -361,7 +363,7 @@ export default function Toolbar({
           <button
             ref={markerBtnRef}
             onClick={() => setMarkerOpen(!markerOpen)}
-            title="Orientation marker"
+            title={t('toolbar.orientationMarker')}
             className={btnClass()}
           >
             <Compass className="w-5 h-5" />
@@ -380,7 +382,7 @@ export default function Toolbar({
                     : 'text-neutral-300 hover:bg-neutral-700'
                 }`}
               >
-                {m.label}
+                {t(m.label)}
               </button>
             ))}
           </PortalDropdown>
@@ -394,11 +396,11 @@ export default function Toolbar({
       {onOpenSpotlight && (
         <button
           onClick={onOpenSpotlight}
-          title="Analyze (Cmd+K)"
+          title={t('toolbar.analyzeShortcut')}
           className={btnClass()}
         >
           <Search className="w-5 h-5" />
-          <span className="hidden sm:inline">Analyze</span>
+          <span className="hidden sm:inline">{t('toolbar.analyze')}</span>
         </button>
       )}
 
@@ -406,7 +408,7 @@ export default function Toolbar({
       {onToggleMetadata && (
         <button
           onClick={onToggleMetadata}
-          title="Study Info"
+          title={t('toolbar.studyInfo')}
           className={btnClass(showMetadata)}
         >
           <Info className="w-5 h-5" />
@@ -417,7 +419,7 @@ export default function Toolbar({
       {onOpenSettings && (
         <button
           onClick={onOpenSettings}
-          title="LLM Settings"
+          title={t('toolbar.llmSettings')}
           className={btnClass()}
         >
           <Settings className="w-5 h-5" />
