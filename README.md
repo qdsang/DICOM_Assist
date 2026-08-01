@@ -1,47 +1,47 @@
 # DICOMassist
 
-**AI-Powered Medical Image Analysis**
+**AI 驱动的医学影像分析**
 
-English | [简体中文](./README.zh-CN.md)
+[English](./README.en.md) | 简体中文
 
-Smart slice selection meets multimodal AI analysis. DICOMassist is a web-based DICOM viewer that intelligently selects the right images before sending them to an LLM for analysis — because the hard part isn't the AI, it's knowing what to send it.
+智能切片筛选 + 多模态 AI 分析。DICOMassist 是一个基于 Web 的 DICOM 查看器,在把影像交给 LLM 分析之前,先智能地选出正确的图像——因为难点不在 AI 本身,而在于知道该给它看什么。
 
 <p align="center">
-  <img src="docs/demo.gif" alt="DICOMassist demo" width="800" />
+  <img src="docs/demo.gif" alt="DICOMassist 演示" width="800" />
 </p>
 
 <p align="center">
-  <a href="https://youtu.be/fdDkg8ZleyA">Watch the full demo video</a> · <a href="https://dicomassist.dev">Live demo</a>
+  <a href="https://youtu.be/fdDkg8ZleyA">观看完整演示视频</a> · <a href="https://qdsang.github.io/DICOMassist/">在线演示</a>
 </p>
 
-> ⚠️ **Educational and research use only.** Not a certified medical device. Not intended for clinical diagnosis or treatment decisions.
+> ⚠️ **仅供教学和研究使用。** 非认证医疗器械,不用于临床诊断或治疗决策。
 
-## How It Works
+## 工作原理
 
-A knee MRI can have 200+ slices across 8+ series. Dumping them all to an AI gives garbage results. DICOMassist uses a **two-call architecture**:
+一个膝关节 MRI 可能有 200+ 张切片、8+ 个序列。把它们一股脑丢给 AI 只会得到垃圾结果。DICOMassist 采用**两次调用架构**:
 
-1. **Load** — Drag and drop DICOM files or folders into the browser
-2. **Analyze** — Describe what to evaluate (e.g., "evaluate for ACL tear grade")
-3. **Plan** — The LLM analyzes study metadata and selects the optimal series, slice range, and windowing based on the clinical question
-4. **Review** — Only the focused slices are sent for multimodal analysis, producing findings with interactive slice references you can click to navigate
+1. **加载** — 将 DICOM 文件或文件夹拖放到浏览器中
+2. **分析** — 描述要评估的内容(例如"评估 ACL 撕裂分级")
+3. **规划** — LLM 分析检查元数据,根据临床问题选出最优的序列、切片范围和窗宽窗位
+4. **审阅** — 仅将聚焦的切片发送给多模态分析,生成带可交互切片引用的结论(点击即可跳转)
 
-## Key Features
+## 核心特性
 
-- **Smart slice filtering** — AI reasons about which series orientation, weighting, and slice range are diagnostically relevant, then samples only those slices
-- **Multi-series support** — Automatic scout detection, series metadata extraction (orientation, MRI weighting, resolution)
-- **Interactive results** — Clickable slice references in findings jump the viewer to the referenced image
-- **Privacy-first** — DICOM files are processed entirely in your browser. No data is uploaded to any server. Image data is only sent to the LLM provider you configure when you run an analysis
-- **Multiple layouts** — 1×1, 1×2, 2×1, 2×2 grid, and MPR (axial/sagittal/coronal)
-- **Standard tools** — Window/Level, Zoom, Pan, Length measurement, Rotate, Flip, Invert, Cine playback
-- **Provider-agnostic** — Works with Claude API (recommended) or local models via Ollama
+- **智能切片筛选** — AI 推理出哪些序列方向、权重和切片范围具有诊断价值,只采样这些切片
+- **多序列支持** — 自动识别定位像,提取序列元数据(方向、MRI 权重、分辨率)
+- **交互式结果** — 结论中的切片引用可点击,直接跳转查看器到对应图像
+- **隐私优先** — DICOM 文件完全在浏览器中处理,不上传到任何服务器。图像数据仅在运行分析时发送给你配置的 LLM 提供商
+- **多种布局** — 1×1、1×2、2×1、2×2 网格,以及 MPR(轴位/矢状位/冠状位)
+- **标准工具** — 窗宽窗位、缩放、平移、长度测量、旋转、翻转、反色、电影播放
+- **提供商无关** — 支持 Claude API(推荐)或通过 Ollama 使用本地模型
 
-## Getting Started
+## 快速开始
 
-### Live demo
+### 在线演示
 
-Visit [dicomassist.dev](https://dicomassist.dev)
+访问 [qdsang.github.io/DICOMassist](https://qdsang.github.io/DICOMassist/)
 
-### Run locally
+### 本地运行
 
 ```bash
 git clone https://github.com/erketellal/DICOMassist.git
@@ -50,59 +50,59 @@ npm install
 npm run dev
 ```
 
-### Configure AI analysis
+### 配置 AI 分析
 
-1. Click the ⚙ Settings icon in the toolbar
-2. Select **Claude API** and enter your API key ([get one here](https://console.anthropic.com))
-3. Load DICOM files, click **Analyze**, and describe what to evaluate
+1. 点击工具栏中的 ⚙ 设置图标
+2. 选择 **Claude API** 并输入你的 API 密钥([在此获取](https://console.anthropic.com))
+3. 加载 DICOM 文件,点击 **Analyze**,描述要评估的内容
 
-For local models, install [Ollama](https://ollama.ai), pull a model (`ollama pull gemma3:4b`), and select Ollama in settings. Note: local models produce significantly lower quality results for medical image analysis compared to Claude.
+如需使用本地模型,安装 [Ollama](https://ollama.ai),拉取模型(`ollama pull gemma3:4b`),然后在设置中选择 Ollama。注意:本地模型在医学影像分析上的质量显著低于 Claude。
 
-### Sample data
+### 示例数据
 
-To try DICOMassist, you can use public DICOM datasets:
+可以 使用公开的 DICOM 数据集来试用 DICOMassist:
 
-- [DICOM Library](https://www.dicomlibrary.com) — free sample datasets
-- [The Cancer Imaging Archive](https://www.cancerimagingarchive.net) — research datasets
-- [OAI (Osteoarthritis Initiative)](https://nda.nih.gov/oai/) — knee MRI datasets
+- [DICOM Library](https://www.dicomlibrary.com) — 免费示例数据集
+- [The Cancer Imaging Archive](https://www.cancerimagingarchive.net) — 研究数据集
+- [OAI(骨关节炎倡议)](https://nda.nih.gov/oai/) — 膝关节 MRI 数据集
 
-## Tech Stack
+## 技术栈
 
 - **React 18** + TypeScript + Vite
-- **Cornerstone3D v4** — medical image rendering, viewport management, tools
-- **Claude API** (Anthropic) — multimodal LLM for image analysis
-- **Ollama** — optional local model support
+- **Cornerstone3D v4** — 医学影像渲染、视口管理、工具
+- **Claude API**(Anthropic)— 用于图像分析的多模态 LLM
+- **Ollama** — 可选的本地模型支持
 
-## Architecture
+## 架构
 
 ```
-User prompt ("evaluate ACL tear")
+用户提示("评估 ACL 撕裂")
         │
         ▼
-   ┌─────────┐     Study metadata
-   │  Call 1  │◄─── (series list, orientations,
-   │  (text)  │     slice counts, resolutions)
+   ┌─────────┐     检查元数据
+   │  调用 1  │◄─── (序列列表、方向、
+   │ (文本)   │     切片数、分辨率)
    └────┬────┘
-        │ Selection plan:
-        │ Series #8 sagittal PD-FS, slices 13-27
+        │ 选择方案:
+        │ 序列 #8 矢状位 PD-FS,切片 13-27
         ▼
-   ┌──────────┐     Focused JPEG exports
-   │  Call 2   │◄─── (15 slices, windowed,
-   │ (vision)  │     with slice labels)
+   ┌──────────┐     聚焦的 JPEG 导出
+   │  调用 2   │◄─── (15 张切片,已加窗,
+   │ (视觉)   │     带切片标签)
    └────┬─────┘
         │
         ▼
-   Findings with slice references
+   带切片引用的分析结论
 ```
 
-## Contributing
+## 贡献
 
-Contributions are welcome! This is an open-source project — feel free to open issues, submit PRs, or suggest features.
+欢迎贡献!这是一个开源项目——欢迎提 issue、提交 PR 或建议新功能。
 
-## License
+## 许可证
 
 MIT
 
 ---
 
-*DICOMassist is an educational tool built to demonstrate intelligent data preparation for AI-powered medical image analysis. It is not a certified medical device and must not be used for clinical decision-making.*
+*DICOMassist 是一个教学工具,用于演示 AI 驱动的医学影像分析中的智能数据准备。它不是认证医疗器械,不得用于临床决策。*
