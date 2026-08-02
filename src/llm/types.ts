@@ -59,9 +59,11 @@ export interface LLMService {
     plan: SelectionPlan,
     sliceLabels: string[],
     surveyMode?: boolean,
+    onDelta?: (delta: string) => void,
   ): Promise<string>;
   sendFollowUp(
     conversationHistory: ChatMessage[],
     metadata: StudyMetadata,
+    onDelta?: (delta: string) => void,
   ): Promise<string>;
 }

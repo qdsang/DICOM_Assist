@@ -426,12 +426,34 @@ export function useLLMChat(
 
       const sliceLabels = allMappings.map((m) => m.label);
       logger.log(`Call 2 — Sending ${allBlobs.length} images to LLM (${sliceLabels.join(', ')})...`);
-      const analysisText = await service.analyzeSlices(allBlobs, metadata, hint, adjustedPlan, sliceLabels, surveyModeRef.current);
+
+      // 流式:立即创建空的 assistant 消息,逐 token 更新
+      const streamingMsgId = makeId();
+      setMessages((prev) => [...prev, {
+        id: streamingMsgId,
+        role: 'assistant',
+        content: '',
+        timestamp: Date.now(),
+      }]);
+
+      const analysisText = await service.analyzeSlices(
+        allBlobs, metadata, hint, adjustedPlan, sliceLabels, surveyModeRef.current,
+        (delta) => {
+          setMessages((prev) => prev.map((m) =>
+            m.id === streamingMsgId ? { ...m, content: m.content + delta } : m
+          ));
+        }
+      );
       const t5 = performance.now();
       if (abortRef.current) { logger.groupEnd(); return; }
 
       logger.log('Call 2 — Analysis response:', analysisText.slice(0, 200) + '...');
       logger.groupEnd();
+
+      // 确保最终文本完整(流式可能遗漏末尾)
+      setMessages((prev) => prev.map((m) =>
+        m.id === streamingMsgId ? { ...m, content: analysisText } : m
+      ));
 
       setPipeline((p) => p && ({
         ...p,
@@ -442,13 +464,6 @@ export function useLLMChat(
         }),
       }));
 
-      const assistantMsg: ChatMessage = {
-        id: makeId(),
-        role: 'assistant',
-        content: analysisText,
-        timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
       setStatus('idle');
     } catch (err) {
       logger.groupEnd();
@@ -491,15 +506,25 @@ export function useLLMChat(
       const service = createLLMService(providerConfig);
       setStatus('following-up');
 
-      const response = await service.sendFollowUp(updatedMessages, metadata);
-
-      const assistantMsg: ChatMessage = {
-        id: makeId(),
+      // 流式:立即创建空的 assistant 消息,逐 token 更新
+      const streamingMsgId = makeId();
+      setMessages((prev) => [...prev, {
+        id: streamingMsgId,
         role: 'assistant',
-        content: response,
+        content: '',
         timestamp: Date.now(),
-      };
-      setMessages((prev) => [...prev, assistantMsg]);
+      }]);
+
+      const response = await service.sendFollowUp(updatedMessages, metadata, (delta) => {
+        setMessages((prev) => prev.map((m) =>
+          m.id === streamingMsgId ? { ...m, content: m.content + delta } : m
+        ));
+      });
+
+      // 确保最终文本完整
+      setMessages((prev) => prev.map((m) =>
+        m.id === streamingMsgId ? { ...m, content: response } : m
+      ));
       setStatus('idle');
     } catch (err) {
       const msg = err instanceof Error ? err.message : i18next.t('errors.unexpected');

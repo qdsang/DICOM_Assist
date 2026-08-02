@@ -7,6 +7,7 @@ import {
   buildAnalysisUserPrompt,
   buildFollowUpSystemPrompt,
 } from './PromptBuilder';
+import { logger } from '../utils/logger';
 import i18next from '../i18n';
 
 // --- Shared Helpers ---
@@ -16,6 +17,11 @@ type SamplingStrategy = 'every_nth' | 'uniform' | 'all';
 function coerceSamplingStrategy(value: unknown): SamplingStrategy {
   if (value === 'every_nth' || value === 'uniform' || value === 'all') return value;
   return 'uniform';
+}
+
+/** 检测 claude-sonnet-5 / opus-5 等思考模型(废弃了 temperature) */
+function isThinkingModel(model: string): boolean {
+  return /claude-(?:sonnet|opus|haiku)-5(?:-|$)/i.test(model);
 }
 
 function extractJson(text: string): string {
@@ -67,14 +73,8 @@ function populateLegacyFields(selections: SeriesSelection[], reasoning: string, 
   };
 }
 
-function parseSelectionPlan(raw: string): SelectionPlan {
-  let json: Record<string, unknown>;
-  try {
-    json = JSON.parse(extractJson(raw));
-  } catch {
-    throw new Error(i18next.t('errors.invalidJson'));
-  }
-
+/** 从已解析的 JSON 对象构建 SelectionPlan(tool_use input 或 JSON.parse 结果共用) */
+function parseSelectionPlanFromObject(json: Record<string, unknown>): SelectionPlan {
   // New multi-series format: { reasoning, selections: [...], totalImages }
   if (Array.isArray(json.selections) && json.selections.length > 0) {
     const selections = (json.selections as Record<string, unknown>[]).map(parseSeriesSelection);
@@ -102,6 +102,90 @@ function parseSelectionPlan(raw: string): SelectionPlan {
   return populateLegacyFields([selection], selection.rationale, 0);
 }
 
+function parseSelectionPlan(raw: string): SelectionPlan {
+  let json: Record<string, unknown>;
+  try {
+    json = JSON.parse(extractJson(raw));
+  } catch {
+    throw new Error(i18next.t('errors.invalidJson'));
+  }
+  return parseSelectionPlanFromObject(json);
+}
+
+/** 安全降级方案:取主序列中间 50%,uniform 采样 12 张 */
+function createSafeDefaultPlan(metadata: StudyMetadata): SelectionPlan {
+  const primary = metadata.series.find((s) => s.seriesInstanceUID === metadata.primarySeriesUID)
+    ?? metadata.series[0];
+  if (!primary) throw new Error('No series available for safe default plan');
+
+  const [minInst, maxInst] = primary.instanceNumberRange;
+  const total = maxInst - minInst + 1;
+  const start = Math.round(minInst + total * 0.25);
+  const end = Math.round(minInst + total * 0.75);
+  const wc = primary.windowCenter ?? 40;
+  const ww = primary.windowWidth ?? 400;
+
+  const selection: SeriesSelection = {
+    seriesNumber: String(primary.seriesNumber),
+    role: 'primary',
+    rationale: 'Fallback: middle 50% of primary series with uniform sampling',
+    sliceRange: [start, end],
+    samplingStrategy: 'uniform',
+    samplingParam: 12,
+    windowCenter: wc,
+    windowWidth: ww,
+  };
+
+  logger.warn('[LLM] Using safe default plan (LLM selection failed)');
+  return populateLegacyFields([selection], 'Fallback plan (LLM selection failed)', 12);
+}
+
+// --- Tool Schema (Claude function calling) ---
+
+const SELECTION_TOOL = {
+  name: 'select_slices',
+  description: 'Select DICOM slices for clinical analysis based on study metadata and the clinical question. You MUST call this tool.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      reasoning: {
+        type: 'string',
+        description: 'Explain why these series, ranges, and windowing were chosen',
+      },
+      selections: {
+        type: 'array',
+        description: '1-3 series selections. The first element MUST be the primary series.',
+        items: {
+          type: 'object',
+          properties: {
+            seriesNumber: { type: 'string', description: 'Series Number, e.g. "3"' },
+            role: { type: 'string', enum: ['primary', 'supplementary'] },
+            rationale: { type: 'string', description: 'Why this specific series is included' },
+            sliceRange: {
+              type: 'array',
+              items: { type: 'number' },
+              description: '[start, end] inclusive instance number range',
+            },
+            samplingStrategy: { type: 'string', enum: ['uniform', 'every_nth', 'all'] },
+            samplingParam: {
+              type: 'number',
+              description: 'uniform: exact count to select. every_nth: step size. Omit for "all".',
+            },
+            windowCenter: { type: 'number' },
+            windowWidth: { type: 'number' },
+          },
+          required: ['seriesNumber', 'role', 'rationale', 'sliceRange', 'samplingStrategy', 'windowCenter', 'windowWidth'],
+        },
+      },
+      totalImages: {
+        type: 'number',
+        description: 'Total slices across all selections, must be ≤ 20',
+      },
+    },
+    required: ['reasoning', 'selections', 'totalImages'],
+  },
+};
+
 // --- Claude Service ---
 
 class ClaudeService implements LLMService {
@@ -116,13 +200,33 @@ class ClaudeService implements LLMService {
   }
 
   async getSelectionPlan(metadata: StudyMetadata, clinicalHint: string, viewportContext?: ViewportContext): Promise<SelectionPlan> {
-    const response = await this.callClaude({
-      system: buildSelectionSystemPrompt(),
-      messages: [{ role: 'user', content: buildSelectionUserPrompt(metadata, clinicalHint, viewportContext) }],
-      temperature: 0,
-      maxTokens: 1024,
-    });
-    return parseSelectionPlan(response);
+    const system = buildSelectionSystemPrompt();
+    const userContent = buildSelectionUserPrompt(metadata, clinicalHint, viewportContext);
+
+    // Attempt 1: tool use (最可靠,Claude 原生结构化输出)
+    try {
+      const toolInput = await this.callClaudeWithTool(system, userContent, 1024);
+      logger.log('[LLM] Call 1 — tool_use succeeded');
+      return parseSelectionPlanFromObject(toolInput);
+    } catch (err) {
+      logger.warn('[LLM] Call 1 — tool_use failed, falling back to prompt mode:', err);
+    }
+
+    // Attempt 2: prompt-based JSON (降级到文本输出 + 正则解析)
+    try {
+      const text = await this.callClaude({
+        system: system + '\n\nIMPORTANT: Output ONLY a valid JSON object, no other text.',
+        messages: [{ role: 'user', content: userContent }],
+        maxTokens: 1024,
+      });
+      logger.log('[LLM] Call 1 — prompt fallback succeeded');
+      return parseSelectionPlan(text);
+    } catch (err) {
+      logger.warn('[LLM] Call 1 — prompt fallback failed, using safe default:', err);
+    }
+
+    // Attempt 3: safe default
+    return createSafeDefaultPlan(metadata);
   }
 
   async analyzeSlices(
@@ -132,6 +236,7 @@ class ClaudeService implements LLMService {
     plan: SelectionPlan,
     sliceLabels: string[],
     surveyMode?: boolean,
+    onDelta?: (delta: string) => void,
   ): Promise<string> {
     const imageContents = await Promise.all(
       images.map(async (blob, i) => [
@@ -161,12 +266,11 @@ class ClaudeService implements LLMService {
     return this.callClaude({
       system: buildAnalysisSystemPrompt(surveyMode),
       messages: [{ role: 'user', content }],
-      temperature: 0,
       maxTokens: 4096,
-    });
+    }, onDelta);
   }
 
-  async sendFollowUp(conversationHistory: ChatMessage[], metadata: StudyMetadata): Promise<string> {
+  async sendFollowUp(conversationHistory: ChatMessage[], metadata: StudyMetadata, onDelta?: (delta: string) => void): Promise<string> {
     const messages = conversationHistory.map((msg) => ({
       role: msg.role as 'user' | 'assistant',
       content: msg.content,
@@ -175,27 +279,22 @@ class ClaudeService implements LLMService {
     return this.callClaude({
       system: buildFollowUpSystemPrompt() + '\n\nStudy context: ' + metadata.studyDescription,
       messages,
-      temperature: 0,
       maxTokens: 4096,
-    });
+    }, onDelta);
   }
 
-  private async callClaude(params: {
-    system: string;
-    messages: Array<{ role: string; content: unknown }>;
-    temperature: number;
-    maxTokens: number;
-  }): Promise<string> {
-    // claude-sonnet-5 / opus-5 等思考模型废弃了 temperature 参数,发送会导致 400
-    const isThinkingModel = /claude-(?:sonnet|opus|haiku)-5(?:-|$)/i.test(this.model);
+  /** 使用 tool_use 获取结构化选择计划(非流式,响应很短) */
+  private async callClaudeWithTool(system: string, userContent: string, maxTokens: number): Promise<Record<string, unknown>> {
     const body: Record<string, unknown> = {
       model: this.model,
-      max_tokens: params.maxTokens,
-      system: params.system,
-      messages: params.messages,
+      max_tokens: maxTokens,
+      system,
+      messages: [{ role: 'user', content: userContent }],
+      tools: [SELECTION_TOOL],
+      tool_choice: { type: 'tool', name: 'select_slices' },
     };
-    if (!isThinkingModel) {
-      body.temperature = params.temperature;
+    if (!isThinkingModel(this.model)) {
+      body.temperature = 0;
     }
 
     const res = await fetch(this.apiUrl, {
@@ -216,8 +315,102 @@ class ClaudeService implements LLMService {
     }
 
     const data = await res.json();
-    const textBlock = data.content?.find((b: { type: string }) => b.type === 'text');
-    return textBlock?.text ?? '';
+    const toolUse = data.content?.find((b: { type: string }) => b.type === 'tool_use');
+    if (!toolUse) throw new Error('No tool_use block in response');
+    return toolUse.input as Record<string, unknown>;
+  }
+
+  /**
+   * 调用 Claude API,支持流式和非流式。
+   * 传入 onDelta 时启用 SSE 流式,逐 token 回调;否则等待完整响应。
+   */
+  private async callClaude(
+    params: {
+      system: string;
+      messages: Array<{ role: string; content: unknown }>;
+      maxTokens: number;
+    },
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: params.maxTokens,
+      system: params.system,
+      messages: params.messages,
+    };
+    if (!isThinkingModel(this.model)) {
+      body.temperature = 0;
+    }
+
+    // 非流式模式:等待完整响应
+    if (!onDelta) {
+      const res = await fetch(this.apiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': this.apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.text();
+        if (res.status === 401) throw new Error(i18next.t('errors.invalidApiKey'));
+        throw new Error(i18next.t('errors.claudeApiError', { status: res.status, body: errBody }));
+      }
+
+      const data = await res.json();
+      const textBlock = data.content?.find((b: { type: string }) => b.type === 'text');
+      return textBlock?.text ?? '';
+    }
+
+    // 流式模式:解析 SSE,逐 token 回调
+    body.stream = true;
+    const res = await fetch(this.apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': this.apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!res.ok) {
+      const errBody = await res.text();
+      if (res.status === 401) throw new Error(i18next.t('errors.invalidApiKey'));
+      throw new Error(i18next.t('errors.claudeApiError', { status: res.status, body: errBody }));
+    }
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const jsonStr = line.slice(6).trim();
+        if (!jsonStr || jsonStr === '[DONE]') continue;
+        try {
+          const evt = JSON.parse(jsonStr);
+          if (evt.type === 'content_block_delta' && evt.delta?.type === 'text_delta') {
+            fullText += evt.delta.text;
+            onDelta(evt.delta.text);
+          }
+        } catch { /* skip malformed SSE line */ }
+      }
+    }
+
+    return fullText;
   }
 }
 
@@ -235,12 +428,17 @@ class OllamaService implements LLMService {
   }
 
   async getSelectionPlan(metadata: StudyMetadata, clinicalHint: string, viewportContext?: ViewportContext): Promise<SelectionPlan> {
-    const response = await this.callOllama({
-      model: this.textModel,
-      system: buildSelectionSystemPrompt(),
-      userContent: buildSelectionUserPrompt(metadata, clinicalHint, viewportContext),
-    });
-    return parseSelectionPlan(response);
+    try {
+      const response = await this.callOllama({
+        model: this.textModel,
+        system: buildSelectionSystemPrompt(),
+        userContent: buildSelectionUserPrompt(metadata, clinicalHint, viewportContext),
+      });
+      return parseSelectionPlan(response);
+    } catch (err) {
+      logger.warn('[LLM] Ollama selection plan failed, using safe default:', err);
+      return createSafeDefaultPlan(metadata);
+    }
   }
 
   async analyzeSlices(
@@ -250,6 +448,7 @@ class OllamaService implements LLMService {
     plan: SelectionPlan,
     sliceLabels: string[],
     surveyMode?: boolean,
+    onDelta?: (delta: string) => void,
   ): Promise<string> {
     const base64Images = await Promise.all(images.map(blobToBase64));
     const manifest = sliceLabels.map((l, i) => `  ${i + 1}. ${l}`).join('\n');
@@ -262,10 +461,10 @@ class OllamaService implements LLMService {
       system: buildAnalysisSystemPrompt(surveyMode),
       userContent,
       images: base64Images,
-    });
+    }, onDelta);
   }
 
-  async sendFollowUp(conversationHistory: ChatMessage[], metadata: StudyMetadata): Promise<string> {
+  async sendFollowUp(conversationHistory: ChatMessage[], metadata: StudyMetadata, onDelta?: (delta: string) => void): Promise<string> {
     const messages = [
       { role: 'system' as const, content: buildFollowUpSystemPrompt() + '\n\nStudy context: ' + metadata.studyDescription },
       ...conversationHistory.map((msg) => ({
@@ -274,33 +473,25 @@ class OllamaService implements LLMService {
       })),
     ];
 
-    const res = await fetch(`${this.baseUrl}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: this.textModel,
-        messages,
-        stream: false,
-        options: { temperature: 0 },
-      }),
-      signal: AbortSignal.timeout(300_000),
-    });
-
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(i18next.t('errors.ollamaError', { status: res.status, body }));
-    }
-
-    const data = await res.json();
-    return data.message?.content ?? '';
+    return this.callOllamaRaw({
+      model: this.textModel,
+      messages,
+    }, onDelta);
   }
 
-  private async callOllama(params: {
-    model: string;
-    system: string;
-    userContent: string;
-    images?: string[];
-  }): Promise<string> {
+  /**
+   * 调用 Ollama /api/chat,支持流式和非流式。
+   * 传入 onDelta 时启用 NDJSON 流式;否则等待完整响应。
+   */
+  private async callOllama(
+    params: {
+      model: string;
+      system: string;
+      userContent: string;
+      images?: string[];
+    },
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
     const messages = [
       { role: 'system', content: params.system },
       {
@@ -310,6 +501,19 @@ class OllamaService implements LLMService {
       },
     ];
 
+    return this.callOllamaRaw({ model: params.model, messages }, onDelta);
+  }
+
+  /** 底层 Ollama 调用,直接接收 messages 数组 */
+  private async callOllamaRaw(
+    params: {
+      model: string;
+      messages: Array<{ role: string; content: string; images?: string[] }>;
+    },
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
+    const stream = !!onDelta;
+
     let res: Response;
     try {
       res = await fetch(`${this.baseUrl}/api/chat`, {
@@ -317,15 +521,15 @@ class OllamaService implements LLMService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           model: params.model,
-          messages,
-          stream: false,
+          messages: params.messages,
+          stream,
           options: { temperature: 0 },
         }),
         signal: AbortSignal.timeout(300_000),
       });
     } catch (err) {
       if (err instanceof DOMException && err.name === 'TimeoutError') {
-      throw new Error(i18next.t('errors.ollamaTimeout', { model: params.model }));
+        throw new Error(i18next.t('errors.ollamaTimeout', { model: params.model }));
       }
       throw new Error(i18next.t('errors.ollamaConnect'));
     }
@@ -335,8 +539,37 @@ class OllamaService implements LLMService {
       throw new Error(i18next.t('errors.ollamaError', { status: res.status, body }));
     }
 
-    const data = await res.json();
-    return data.message?.content ?? '';
+    // 非流式:解析单个 JSON 响应
+    if (!stream) {
+      const data = await res.json();
+      return data.message?.content ?? '';
+    }
+
+    // 流式:解析 NDJSON(每行一个 JSON 对象)
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+    let buffer = '';
+
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.trim()) continue;
+        try {
+          const data = JSON.parse(line);
+          if (data.message?.content) {
+            fullText += data.message.content;
+            onDelta(data.message.content);
+          }
+        } catch { /* skip malformed line */ }
+      }
+    }
+
+    return fullText;
   }
 }
 
