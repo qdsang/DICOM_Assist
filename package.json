@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "proxy": "node proxy/claude-proxy.js",
     "build": "tsc && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
