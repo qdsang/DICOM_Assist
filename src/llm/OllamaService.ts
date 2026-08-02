@@ -88,6 +88,8 @@ export class OllamaService implements LLMService {
     sliceLabels: string[],
     _toolExecutor: ToolExecutor,
     onDelta?: (delta: string) => void,
+    _onToolCall?: (name: string, input: Record<string, unknown>) => void,
+    _shouldStop?: () => boolean,
   ): Promise<string> {
     logger.warn('[Agent] Ollama does not support agentic loop, falling back to one-shot analysis');
     const fallbackPlan: SelectionPlan = {

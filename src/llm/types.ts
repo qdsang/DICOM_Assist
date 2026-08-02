@@ -75,5 +75,6 @@ export interface LLMService {
     toolExecutor: ToolExecutor,
     onDelta?: (delta: string) => void,
     onToolCall?: (name: string, input: Record<string, unknown>) => void,
+    shouldStop?: () => boolean,
   ): Promise<string>;
 }

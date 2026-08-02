@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare, MapPin, Wrench, Image, Layers, Crosshair, Activity, Ruler } from 'lucide-react';
+import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare, MapPin, Wrench, Image, Layers, Crosshair, Activity, Ruler, Square } from 'lucide-react';
 import type { ChatMessage, SelectionPlan } from '../llm/types';
 import type { StudyMetadata } from '../dicom/types';
 import type { ChatStatus, PipelineState, SliceMapping } from '../llm/useLLMChat';
@@ -26,6 +26,7 @@ interface ChatSidebarProps {
   onConfirmPlan: (plan: SelectionPlan) => void;
   onCancelPlan: () => void;
   onStartAnalysis: (hint: string, options?: { surveyMode?: boolean }) => void;
+  onStopAnalysis: () => void;
   onSendFollowUp: (text: string) => void;
   onClear: () => void;
   onClearAnnotations: () => void;
@@ -47,6 +48,7 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
   onConfirmPlan,
   onCancelPlan,
   onStartAnalysis,
+  onStopAnalysis,
   onSendFollowUp,
   onClear,
   onClearAnnotations,
@@ -105,6 +107,9 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 中文输入法 composing 期间的回车(选词)不触发发送
+    // isComposing 是标准属性,keyCode 229 是 IME 的经典标识(兼容老浏览器)
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
@@ -243,13 +248,25 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
             disabled={busy}
             className="flex-1 bg-transparent text-sm text-neutral-100 placeholder-neutral-500 outline-none disabled:opacity-50"
           />
-          <button
-            onClick={handleSend}
-            disabled={busy || !input.trim()}
-            className="p-1 rounded text-neutral-400 hover:text-blue-400 disabled:opacity-30 disabled:hover:text-neutral-400"
-          >
-            <Send className="w-4 h-4" />
-          </button>
+          {/* 分析中显示停止按钮(planning/exporting/analyzing) */}
+          {busy ? (
+            <button
+              onClick={onStopAnalysis}
+              title={t('chat.stop', { defaultValue: '停止分析(保留已获取内容)' })}
+              className="flex items-center gap-1 px-2 py-1 rounded text-red-400 hover:text-red-300 hover:bg-red-950/40 text-xs font-medium transition-colors"
+            >
+              <Square className="w-3 h-3 fill-current" />
+              {t('chat.stopBtn', { defaultValue: '停止' })}
+            </button>
+          ) : (
+            <button
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="p-1 rounded text-neutral-400 hover:text-blue-400 disabled:opacity-30 disabled:hover:text-neutral-400"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          )}
         </div>
       </div>
     </div>

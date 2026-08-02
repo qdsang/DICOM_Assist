@@ -12,7 +12,7 @@ export default function LandingScreen({ children }: LandingScreenProps) {
       <div className="max-w-2xl w-full">
         {/* Header */}
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">DICOMassist</h1>
+          <h1 className="text-3xl font-bold text-white mb-2">DICOM Assist</h1>
           <p className="text-lg text-zinc-400">{t('landing.subtitle')}</p>
           <p className="text-sm text-zinc-500 mt-2">
             {t('landing.tagline1')}

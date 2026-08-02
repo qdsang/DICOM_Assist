@@ -79,6 +79,7 @@ interface UseLLMChatReturn {
   startAnalysis: (hint: string, viewportContext?: ViewportContext, options?: { surveyMode?: boolean }) => Promise<void>;
   confirmPlan: (adjustedPlan: SelectionPlan) => Promise<void>;
   cancelPlan: () => void;
+  stopAnalysis: () => void;
   sendFollowUp: (text: string) => Promise<void>;
   clearChat: () => void;
   clearAnnotations: () => void;
@@ -514,6 +515,7 @@ export function useLLMChat(
         logger.log('[Agent] Starting agentic loop (Claude tool_use)');
         analysisText = await service.runAgentAnalysis(
           allBlobs, metadata, hint, sliceLabels, toolExecutor, onDelta, onToolCall,
+          () => abortRef.current,
         );
       } else {
         analysisText = await service.analyzeSlices(
@@ -521,10 +523,32 @@ export function useLLMChat(
         );
       }
       const t5 = performance.now();
-      if (abortRef.current) { logger.groupEnd(); return; }
-
+      const wasStopped = abortRef.current;
       logger.log('Call 2 — Analysis response:', analysisText.slice(0, 200) + '...');
       logger.groupEnd();
+
+      if (wasStopped) {
+        // 用户中止:保留已流式累积的内容,不覆盖。仅当返回文本更长时才更新(含中止提示)。
+        setMessages((prev) => prev.map((m) => {
+          if (m.id !== streamingMsgId) return m;
+          // 流式内容已经在 onDelta 中累积;若返回值更长(含末尾提示),追加提示
+          if (analysisText.length > m.content.length) {
+            return { ...m, content: analysisText };
+          }
+          return m;
+        }));
+        setActiveToolCall(null);
+        setPipeline((p) => p && ({
+          ...p,
+          steps: updateStep(p.steps, 'analyze', {
+            status: 'done',
+            detail: i18next.t('pipelineSteps.stopped', { defaultValue: '已中止' }),
+            durationMs: Math.round(t5 - t4),
+          }),
+        }));
+        setStatus('idle');
+        return;
+      }
 
       // 确保最终文本完整(流式可能遗漏末尾)
       setMessages((prev) => prev.map((m) =>
@@ -562,6 +586,15 @@ export function useLLMChat(
       if (last.role === 'user') return prev.slice(0, -1);
       return prev;
     });
+  }, []);
+
+  /** 中止当前分析(planning/exporting/analyzing 阶段)。保留已产生的流式内容,可继续 follow-up。 */
+  const stopAnalysis = useCallback(() => {
+    abortRef.current = true;
+    setActiveToolCall(null);
+    // 不清除 messages/pipeline —— 分析中已流式累积的内容保留,用户可基于此继续提问
+    // 状态先标记为 following-up 让 UI 退出 analyzing,实际 analyze 循环会在 shouldStop 检查处退出
+    setStatus('idle');
   }, []);
 
   const sendFollowUp = useCallback(async (text: string) => {
@@ -642,6 +675,7 @@ export function useLLMChat(
     startAnalysis,
     confirmPlan,
     cancelPlan,
+    stopAnalysis,
     sendFollowUp,
     clearChat,
     clearAnnotations,

@@ -177,6 +177,7 @@ export class ClaudeService implements LLMService {
     toolExecutor: ToolExecutor,
     onDelta?: (delta: string) => void,
     onToolCall?: (name: string, input: Record<string, unknown>) => void,
+    shouldStop?: () => boolean,
   ): Promise<string> {
     const system = buildAgentSystemPrompt();
 
@@ -213,7 +214,18 @@ export class ClaudeService implements LLMService {
       { role: 'user', content: initialContent },
     ];
 
+    // 累积所有 LLM 文本输出(思考过程 + 已有发现)——中断/达上限时作为部分结果返回,
+    // 避免丢失已分析内容导致后续 follow-up "白分析"
+    let accumulatedText = '';
+
     for (let iter = 0; iter < DEFAULT_AGENT_CONFIG.maxIterations; iter++) {
+      // 检查是否已被用户中止
+      if (shouldStop?.()) {
+        logger.log('[Agent] Stopped by user at iter', iter);
+        return accumulatedText + (accumulatedText ? '\n\n' : '') +
+          '⏹️ 分析已中止。以上为已获取的信息,可在下方继续提问以补全分析。';
+      }
+
       const response = await this.callClaudeWithTools({
         system,
         messages,
@@ -221,20 +233,18 @@ export class ClaudeService implements LLMService {
         maxTokens: 4096,
       });
 
-      // 转发文本块到 onDelta(让用户看到 LLM 的思考过程)
+      // 累积 + 转发文本块到 onDelta(让用户看到 LLM 的思考过程)
       for (const block of response.content) {
         if (block.type === 'text' && block.text) {
-          onDelta?.(block.text as string);
+          const text = block.text as string;
+          accumulatedText += text;
+          onDelta?.(text);
         }
       }
 
-      // 没有工具调用 → 分析结束
+      // 没有工具调用 → 分析结束,返回最终文本
       if (response.stop_reason !== 'tool_use') {
-        const text = response.content
-          .filter((b: Record<string, unknown>) => b.type === 'text')
-          .map((b: Record<string, unknown>) => b.text as string)
-          .join('\n');
-        return text || 'Analysis complete.';
+        return accumulatedText || 'Analysis complete.';
       }
 
       // 处理工具调用
@@ -246,10 +256,17 @@ export class ClaudeService implements LLMService {
         const toolInput = block.input as Record<string, unknown>;
         const toolUseId = block.id as string;
 
+        // 中止检查(在执行工具前)
+        if (shouldStop?.()) {
+          logger.log('[Agent] Stopped by user before tool', toolName);
+          return accumulatedText + (accumulatedText ? '\n\n' : '') +
+            '⏹️ 分析已中止。以上为已获取的信息,可在下方继续提问以补全分析。';
+        }
+
         onToolCall?.(toolName, toolInput);
         logger.log(`[Agent] iter ${iter} tool: ${toolName}`, toolInput);
 
-        // finish_analysis → 返回报告
+        // finish_analysis → 返回报告(报告替代思考过程作为最终输出)
         if (toolName === 'finish_analysis') {
           return String(toolInput.report ?? '');
         }
@@ -269,8 +286,10 @@ export class ClaudeService implements LLMService {
       messages.push({ role: 'user', content: toolResults });
     }
 
-    logger.warn('[Agent] Max iterations reached');
-    return 'Analysis incomplete: maximum tool call iterations reached.';
+    // 达到上限:返回已累积的内容 + 提示(而非丢弃)
+    logger.warn('[Agent] Max iterations reached, returning accumulated text');
+    return accumulatedText + (accumulatedText ? '\n\n' : '') +
+      '⚠️ 已达到工具调用次数上限。以上为已获取的信息,可在下方继续提问以补全分析。';
   }
 
   /** 将 ToolResultContent 转为 Claude API content 格式 */

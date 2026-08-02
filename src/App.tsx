@@ -71,6 +71,7 @@ export default function App() {
     startAnalysis,
     confirmPlan,
     cancelPlan,
+    stopAnalysis,
     sendFollowUp,
     clearChat,
     clearAnnotations,
@@ -528,6 +529,7 @@ export default function App() {
             onConfirmPlan={confirmPlan}
             onCancelPlan={cancelPlan}
             onStartAnalysis={handleStartAnalysis}
+            onStopAnalysis={stopAnalysis}
             onSendFollowUp={sendFollowUp}
             onClear={clearChat}
             onClearAnnotations={clearAnnotations}
