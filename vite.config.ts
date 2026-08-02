@@ -6,7 +6,7 @@ import { viteCommonjs } from '@originjs/vite-plugin-commonjs';
 // GitHub Pages serves project sites at /<repo-name>/. Build with that base
 // only inside CI so local dev (`vite`) keeps serving from `/`.
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-const repoName = 'DICOM_Assist';
+const repoName = 'DICOMassist';
 
 export default defineConfig({
   base: isGitHubActions ? `/${repoName}/` : '/',
@@ -26,6 +26,8 @@ export default defineConfig({
       // ("Cannot read properties of null (reading 'useContext')").
       'i18next',
       'react-i18next',
+      'react',
+      'react-dom',
     ],
   },
   worker: {
