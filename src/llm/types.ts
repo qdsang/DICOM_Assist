@@ -1,4 +1,5 @@
 import type { StudyMetadata } from '../dicom/types';
+import type { ToolExecutor } from './agentTypes';
 
 export interface SeriesSelection {
   seriesNumber: string;
@@ -65,5 +66,14 @@ export interface LLMService {
     conversationHistory: ChatMessage[],
     metadata: StudyMetadata,
     onDelta?: (delta: string) => void,
+  ): Promise<string>;
+  runAgentAnalysis(
+    initialImages: Blob[],
+    metadata: StudyMetadata,
+    clinicalHint: string,
+    sliceLabels: string[],
+    toolExecutor: ToolExecutor,
+    onDelta?: (delta: string) => void,
+    onToolCall?: (name: string, input: Record<string, unknown>) => void,
   ): Promise<string>;
 }

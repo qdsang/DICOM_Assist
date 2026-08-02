@@ -1,11 +1,42 @@
-import { useState, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import type { StudyMetadata } from '../dicom/types';
 import type { SelectionPlan, SeriesSelection, ChatMessage, ProviderConfig, ViewportContext } from './types';
 import { createLLMService } from './LLMServiceFactory';
 import { selectSlicesForSelection } from '../filtering/SliceSelector';
 import { exportSlicesToJpeg } from '../filtering/SliceExporter';
+import { createToolExecutor } from './agentTools';
+import type { LLMAnnotation, ToolExecutor } from './agentTypes';
 import { logger } from '../utils/logger';
 import i18next from '../i18n';
+
+const CHAT_STORAGE_KEY = 'dicomassist-chat-history';
+
+function loadChatHistory(): ChatMessage[] {
+  try {
+    const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+    if (!saved) return [];
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+    // Basic shape validation
+    return parsed.filter((m: unknown): m is ChatMessage =>
+      typeof m === 'object' && m !== null
+      && typeof (m as ChatMessage).id === 'string'
+      && typeof (m as ChatMessage).role === 'string'
+      && typeof (m as ChatMessage).content === 'string'
+      && typeof (m as ChatMessage).timestamp === 'number'
+    );
+  } catch { return []; }
+}
+
+function saveChatHistory(messages: ChatMessage[]): void {
+  try {
+    localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+  } catch { /* quota exceeded — ignore */ }
+}
+
+function clearChatHistory(): void {
+  try { localStorage.removeItem(CHAT_STORAGE_KEY); } catch { /* */ }
+}
 
 export type ChatStatus = 'idle' | 'planning' | 'awaiting-confirmation' | 'exporting' | 'analyzing' | 'following-up' | 'error';
 
@@ -42,11 +73,15 @@ interface UseLLMChatReturn {
   error: string | null;
   currentPlan: SelectionPlan | null;
   pipeline: PipelineState | null;
+  annotations: LLMAnnotation[];
+  toolCallLog: { name: string; input: Record<string, unknown>; ts: number }[];
+  activeToolCall: { name: string; input: Record<string, unknown> } | null;
   startAnalysis: (hint: string, viewportContext?: ViewportContext, options?: { surveyMode?: boolean }) => Promise<void>;
   confirmPlan: (adjustedPlan: SelectionPlan) => Promise<void>;
   cancelPlan: () => void;
   sendFollowUp: (text: string) => Promise<void>;
   clearChat: () => void;
+  clearAnnotations: () => void;
 }
 
 const STATUS_KEYS: Record<ChatStatus, string> = {
@@ -203,15 +238,23 @@ export function useLLMChat(
   metadata: StudyMetadata | null,
   providerConfig: ProviderConfig,
 ): UseLLMChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => loadChatHistory());
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [error, setError] = useState<string | null>(null);
   const [currentPlan, setCurrentPlan] = useState<SelectionPlan | null>(null);
   const [pipeline, setPipeline] = useState<PipelineState | null>(null);
+  const [annotations, setAnnotations] = useState<LLMAnnotation[]>([]);
+  const [toolCallLog, setToolCallLog] = useState<{ name: string; input: Record<string, unknown>; ts: number }[]>([]);
+  const [activeToolCall, setActiveToolCall] = useState<{ name: string; input: Record<string, unknown> } | null>(null);
   const abortRef = useRef(false);
   const hintRef = useRef<string>('');
   const surveyModeRef = useRef(false);
   const planTimingRef = useRef<{ t0: number; t1: number }>({ t0: 0, t1: 0 });
+
+  // 持久化聊天记录到 localStorage(方便刷新后继续对话)
+  useEffect(() => {
+    saveChatHistory(messages);
+  }, [messages]);
 
   const startAnalysis = useCallback(async (hint: string, viewportContext?: ViewportContext, options?: { surveyMode?: boolean }) => {
     if (!metadata) return;
@@ -436,14 +479,36 @@ export function useLLMChat(
         timestamp: Date.now(),
       }]);
 
-      const analysisText = await service.analyzeSlices(
-        allBlobs, metadata, hint, adjustedPlan, sliceLabels, surveyModeRef.current,
-        (delta) => {
-          setMessages((prev) => prev.map((m) =>
-            m.id === streamingMsgId ? { ...m, content: m.content + delta } : m
-          ));
-        }
-      );
+      // Claude 走 agentic loop(支持工具调用 + 标注);Ollama 降级到一次性分析
+      const useAgent = providerConfig.provider === 'claude';
+
+      const onDelta = (delta: string) => {
+        setMessages((prev) => prev.map((m) =>
+          m.id === streamingMsgId ? { ...m, content: m.content + delta } : m
+        ));
+      };
+
+      let analysisText: string;
+      if (useAgent) {
+        const toolExecutor = createToolExecutor({
+          metadata,
+          onAnnotation: (ann) => {
+            logger.log('[Agent] Annotation produced:', ann);
+            setAnnotations((prev) => [...prev, ann]);
+          },
+        });
+        const onToolCall = (name: string, input: Record<string, unknown>) => {
+          setToolCallLog((prev) => [...prev, { name, input, ts: Date.now() }]);
+        };
+        logger.log('[Agent] Starting agentic loop (Claude tool_use)');
+        analysisText = await service.runAgentAnalysis(
+          allBlobs, metadata, hint, sliceLabels, toolExecutor, onDelta, onToolCall,
+        );
+      } else {
+        analysisText = await service.analyzeSlices(
+          allBlobs, metadata, hint, adjustedPlan, sliceLabels, surveyModeRef.current, onDelta,
+        );
+      }
       const t5 = performance.now();
       if (abortRef.current) { logger.groupEnd(); return; }
 
@@ -541,6 +606,13 @@ export function useLLMChat(
     setError(null);
     setCurrentPlan(null);
     setPipeline(null);
+    setAnnotations([]);
+    setToolCallLog([]);
+  }, []);
+
+  const clearAnnotations = useCallback(() => {
+    setAnnotations([]);
+    setToolCallLog([]);
   }, []);
 
   return {
@@ -550,10 +622,13 @@ export function useLLMChat(
     error,
     currentPlan,
     pipeline,
+    annotations,
+    toolCallLog,
     startAnalysis,
     confirmPlan,
     cancelPlan,
     sendFollowUp,
     clearChat,
+    clearAnnotations,
   };
 }

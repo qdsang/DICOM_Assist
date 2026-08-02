@@ -11,3 +11,5 @@ testdata/
 dicom_data/
 screenshots/
 .DS_Store
+
+proxy

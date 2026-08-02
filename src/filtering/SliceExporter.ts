@@ -31,7 +31,7 @@ export async function exportSlicesToJpeg(
   return results;
 }
 
-async function renderSliceToJpeg(
+export async function renderSliceToJpeg(
   imageId: string,
   windowCenter: number,
   windowWidth: number,

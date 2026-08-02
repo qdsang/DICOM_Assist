@@ -65,11 +65,13 @@ export default function App() {
     error,
     currentPlan,
     pipeline,
+    annotations,
     startAnalysis,
     confirmPlan,
     cancelPlan,
     sendFollowUp,
     clearChat,
+    clearAnnotations,
   } = useLLMChat(studyMetadata, providerConfig);
 
   useEffect(() => {
@@ -494,6 +496,7 @@ export default function App() {
               flipV={flipV}
               cineEnabled={cineEnabled}
               studyMetadata={studyMetadata}
+              annotations={annotations}
             />
           </div>
           <LoadingOverlay
@@ -523,6 +526,8 @@ export default function App() {
             onStartAnalysis={handleStartAnalysis}
             onSendFollowUp={sendFollowUp}
             onClear={clearChat}
+            onClearAnnotations={clearAnnotations}
+            annotationCount={annotations.length}
             onClose={() => setShowChat(false)}
             onNavigateToSlice={handleNavigateToSlice}
           />

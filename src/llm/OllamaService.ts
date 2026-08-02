@@ -1,5 +1,6 @@
 import type { StudyMetadata } from '../dicom/types';
 import type { SelectionPlan, ChatMessage, LLMService, ViewportContext } from './types';
+import type { ToolExecutor } from './agentTypes';
 import {
   buildSelectionSystemPrompt,
   buildSelectionUserPrompt,
@@ -76,6 +77,30 @@ export class OllamaService implements LLMService {
       model: this.textModel,
       messages,
     }, onDelta);
+  }
+
+  // --- Agentic Loop (Ollama 不支持 tool_use,降级到一次性分析) ---
+
+  async runAgentAnalysis(
+    initialImages: Blob[],
+    metadata: StudyMetadata,
+    clinicalHint: string,
+    sliceLabels: string[],
+    _toolExecutor: ToolExecutor,
+    onDelta?: (delta: string) => void,
+  ): Promise<string> {
+    logger.warn('[Agent] Ollama does not support agentic loop, falling back to one-shot analysis');
+    const fallbackPlan: SelectionPlan = {
+      reasoning: 'N/A (Ollama fallback)',
+      selections: [],
+      totalImages: initialImages.length,
+      targetSeries: '',
+      sliceRange: [0, 0],
+      windowCenter: 40,
+      windowWidth: 400,
+      samplingStrategy: 'uniform',
+    };
+    return this.analyzeSlices(initialImages, metadata, clinicalHint, fallbackPlan, sliceLabels, false, onDelta);
   }
 
   /**

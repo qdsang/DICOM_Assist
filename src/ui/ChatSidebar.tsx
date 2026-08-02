@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare } from 'lucide-react';
+import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare, MapPin } from 'lucide-react';
 import type { ChatMessage, SelectionPlan } from '../llm/types';
 import type { StudyMetadata } from '../dicom/types';
 import type { ChatStatus, PipelineState, SliceMapping } from '../llm/useLLMChat';
@@ -26,8 +26,10 @@ interface ChatSidebarProps {
   onStartAnalysis: (hint: string, options?: { surveyMode?: boolean }) => void;
   onSendFollowUp: (text: string) => void;
   onClear: () => void;
+  onClearAnnotations: () => void;
   onClose: () => void;
   onNavigateToSlice: (mapping: SliceMapping) => void;
+  annotationCount?: number;
 }
 
 export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSidebar({
@@ -43,8 +45,10 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
   onStartAnalysis,
   onSendFollowUp,
   onClear,
+  onClearAnnotations,
   onClose,
   onNavigateToSlice,
+  annotationCount = 0,
 }, ref) {
   const { t } = useTranslation();
   const [input, setInput] = useState('');
@@ -109,6 +113,16 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
       <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700 shrink-0">
         <span className="text-sm font-medium text-neutral-200">{t('chat.title')}</span>
         <div className="flex items-center gap-1">
+          {annotationCount > 0 && (
+            <button
+              onClick={onClearAnnotations}
+              title={t('chat.clearAnnotations', { defaultValue: 'Clear annotations ({count})', count: annotationCount })}
+              className="flex items-center gap-1 px-1.5 py-1 rounded hover:bg-neutral-700 text-amber-400 hover:text-amber-300 text-xs"
+            >
+              <MapPin className="w-3.5 h-3.5" />
+              <span>{annotationCount}</span>
+            </button>
+          )}
           {messages.length > 0 && (
             <button
               onClick={onClear}

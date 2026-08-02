@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   RenderingEngine,
@@ -8,6 +8,7 @@ import {
   cache,
   eventTarget,
   utilities as csCoreUtilities,
+  imageLoader,
 } from '@cornerstonejs/core';
 import {
   ToolGroupManager,
@@ -34,6 +35,8 @@ import type { ViewportInfo } from './viewportUtils';
 import { SliceSlider } from './SliceSlider';
 import { ViewportOverlay } from './overlays/ViewportOverlay';
 import { VrOverlay } from './overlays/VrOverlay';
+import { AnnotationOverlay } from './overlays/AnnotationOverlay';
+import type { LLMAnnotation } from '../llm/agentTypes';
 import { registerTools, applyVrToViewport } from './vrHelpers';
 import { createCrosshair3D, setCrosshair3DPosition, type Crosshair3D } from './crosshair3D';
 import { logger } from '../utils/logger';
@@ -146,6 +149,7 @@ interface ViewportGridProps {
   flipV?: boolean;
   cineEnabled?: boolean;
   studyMetadata?: StudyMetadata | null;
+  annotations?: LLMAnnotation[];
 }
 
 export default function ViewportGrid({
@@ -153,6 +157,7 @@ export default function ViewportGrid({
   orientationMarkerType = 'cube', onResetRef,
   invert = false, flipH = false, flipV = false, cineEnabled = false,
   studyMetadata,
+  annotations,
 }: ViewportGridProps) {
   const { t } = useTranslation();
   const singleRef = useRef<HTMLDivElement>(null);
@@ -176,6 +181,28 @@ export default function ViewportGrid({
   togglesRef.current = { invert, flipH, flipV, cine: cineEnabled };
 
   const [singleInfo, setSingleInfo] = useState<ViewportInfo>({ current: 0, total: 0, ww: 0, wc: 0 });
+  const [stackImageDims, setStackImageDims] = useState<{ w: number; h: number } | null>(null);
+
+  // 加载首张图像获取尺寸(用于标注 SVG viewBox)
+  useEffect(() => {
+    if (!imageIds.length) { setStackImageDims(null); return; }
+    let cancelled = false;
+    imageLoader.loadAndCacheImage(imageIds[0])
+      .then((img) => { if (!cancelled) setStackImageDims({ w: img.columns, h: img.rows }); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [imageIds]);
+
+  // 过滤当前层的标注
+  const visibleAnnotations = useMemo(() => {
+    if (!annotations?.length || !studyMetadata || !stackImageDims) return [];
+    const primary = studyMetadata.series.find((s) => s.seriesInstanceUID === studyMetadata.primarySeriesUID);
+    if (!primary) return [];
+    const seriesNumber = String(primary.seriesNumber);
+    const slice = primary.slices[singleInfo.current];
+    if (!slice) return [];
+    return annotations.filter((a) => a.seriesNumber === seriesNumber && a.instanceNumber === slice.instanceNumber);
+  }, [annotations, studyMetadata, singleInfo.current, stackImageDims]);
   const [mprInfo, setMprInfo] = useState<Record<string, ViewportInfo>>({
     CT_AXIAL: { current: 0, total: 0, ww: 0, wc: 0 },
     CT_SAGITTAL: { current: 0, total: 0, ww: 0, wc: 0 },
@@ -1291,6 +1318,11 @@ export default function ViewportGrid({
       <SliceSlider current={singleInfo.current} total={singleInfo.total} onChange={(idx) => handleSliceChange(singleVpId, idx)} />
       <div className="relative flex-1 min-w-0 bg-black overflow-hidden">
         <div ref={singleRef} className="absolute inset-0" />
+        <AnnotationOverlay
+          annotations={visibleAnnotations}
+          imageWidth={stackImageDims?.w}
+          imageHeight={stackImageDims?.h}
+        />
         <ViewportOverlay
           label={`${orientationLabel}${isReconstructed ? ' (recon)' : ''}`}
           info={singleInfo}

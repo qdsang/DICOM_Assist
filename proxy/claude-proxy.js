@@ -5,7 +5,7 @@ import http from 'node:http';
 import { request as httpsRequest } from 'node:https';
 
 const PORT = process.env.PROXY_PORT || 8787;
-const TARGET = 'https://api.anthropic.com';
+const TARGET = 'https://api.neorouter.ai';
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
@@ -32,7 +32,7 @@ const server = http.createServer((req, res) => {
       TARGET + req.url,
       {
         method: req.method,
-        headers: { ...req.headers, host: 'api.anthropic.com' },
+        headers: { ...req.headers, host: 'api.neorouter.ai' },
       },
       (proxyRes) => {
         res.writeHead(proxyRes.statusCode, proxyRes.headers);
