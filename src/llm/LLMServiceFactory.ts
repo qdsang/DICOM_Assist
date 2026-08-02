@@ -186,6 +186,18 @@ class ClaudeService implements LLMService {
     temperature: number;
     maxTokens: number;
   }): Promise<string> {
+    // claude-sonnet-5 / opus-5 等思考模型废弃了 temperature 参数,发送会导致 400
+    const isThinkingModel = /claude-(?:sonnet|opus|haiku)-5(?:-|$)/i.test(this.model);
+    const body: Record<string, unknown> = {
+      model: this.model,
+      max_tokens: params.maxTokens,
+      system: params.system,
+      messages: params.messages,
+    };
+    if (!isThinkingModel) {
+      body.temperature = params.temperature;
+    }
+
     const res = await fetch(this.apiUrl, {
       method: 'POST',
       headers: {
@@ -194,19 +206,13 @@ class ClaudeService implements LLMService {
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
       },
-      body: JSON.stringify({
-        model: this.model,
-        max_tokens: params.maxTokens,
-        temperature: params.temperature,
-        system: params.system,
-        messages: params.messages,
-      }),
+      body: JSON.stringify(body),
     });
 
     if (!res.ok) {
-      const body = await res.text();
+      const errBody = await res.text();
       if (res.status === 401) throw new Error(i18next.t('errors.invalidApiKey'));
-      throw new Error(i18next.t('errors.claudeApiError', { status: res.status, body }));
+      throw new Error(i18next.t('errors.claudeApiError', { status: res.status, body: errBody }));
     }
 
     const data = await res.json();
