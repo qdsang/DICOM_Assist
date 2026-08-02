@@ -1,4 +1,4 @@
-# DICOMassist
+# DICOM Assist AI
 
 **AI 驱动的医学影像分析**
 

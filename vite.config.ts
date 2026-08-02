@@ -3,10 +3,11 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { viteCommonjs } from '@originjs/vite-plugin-commonjs';
 
-// GitHub Pages serves project sites at /<repo-name>/. Build with that base
-// only inside CI so local dev (`vite`) keeps serving from `/`.
+// GitHub Pages serves project sites at /<repo-name>/. Derive the repo name
+// from GITHUB_REPOSITORY (format: "owner/repo") in CI so renames don't break
+// asset paths. Local dev (`vite`) keeps serving from `/`.
 const isGitHubActions = process.env.GITHUB_ACTIONS === 'true';
-const repoName = 'DICOMassist';
+const repoName = process.env.GITHUB_REPOSITORY?.split('/')[1] ?? 'DICOM_Assist';
 
 export default defineConfig({
   base: isGitHubActions ? `/${repoName}/` : '/',
