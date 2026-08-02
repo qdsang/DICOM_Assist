@@ -66,6 +66,8 @@ export default function App() {
     currentPlan,
     pipeline,
     annotations,
+    activeToolCall,
+    toolCallLog,
     startAnalysis,
     confirmPlan,
     cancelPlan,
@@ -521,6 +523,8 @@ export default function App() {
             pipeline={pipeline}
             currentPlan={currentPlan}
             studyMetadata={studyMetadata}
+            activeToolCall={activeToolCall}
+            toolCallLog={toolCallLog}
             onConfirmPlan={confirmPlan}
             onCancelPlan={cancelPlan}
             onStartAnalysis={handleStartAnalysis}

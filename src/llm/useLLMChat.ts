@@ -490,13 +490,24 @@ export function useLLMChat(
 
       let analysisText: string;
       if (useAgent) {
-        const toolExecutor = createToolExecutor({
+        const baseExecutor = createToolExecutor({
           metadata,
           onAnnotation: (ann) => {
             logger.log('[Agent] Annotation produced:', ann);
             setAnnotations((prev) => [...prev, ann]);
           },
         });
+        // 包装 executor:执行前设置 activeToolCall,执行后清除,让 UI 显示当前工具进度
+        const toolExecutor: ToolExecutor = {
+          async execute(toolName: string, input: Record<string, unknown>) {
+            setActiveToolCall({ name: toolName, input });
+            try {
+              return await baseExecutor.execute(toolName, input);
+            } finally {
+              setActiveToolCall(null);
+            }
+          },
+        };
         const onToolCall = (name: string, input: Record<string, unknown>) => {
           setToolCallLog((prev) => [...prev, { name, input, ts: Date.now() }]);
         };
@@ -608,11 +619,14 @@ export function useLLMChat(
     setPipeline(null);
     setAnnotations([]);
     setToolCallLog([]);
+    setActiveToolCall(null);
+    clearChatHistory();
   }, []);
 
   const clearAnnotations = useCallback(() => {
     setAnnotations([]);
     setToolCallLog([]);
+    setActiveToolCall(null);
   }, []);
 
   return {
@@ -624,6 +638,7 @@ export function useLLMChat(
     pipeline,
     annotations,
     toolCallLog,
+    activeToolCall,
     startAnalysis,
     confirmPlan,
     cancelPlan,

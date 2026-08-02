@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useImperativeHandle, forwardRef, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare, MapPin } from 'lucide-react';
+import { X, Send, Trash2, AlertCircle, Loader2, ClipboardList, MessageSquare, MapPin, Wrench, Image, Layers, Crosshair, Activity, Ruler } from 'lucide-react';
 import type { ChatMessage, SelectionPlan } from '../llm/types';
 import type { StudyMetadata } from '../dicom/types';
 import type { ChatStatus, PipelineState, SliceMapping } from '../llm/useLLMChat';
@@ -21,6 +21,8 @@ interface ChatSidebarProps {
   pipeline: PipelineState | null;
   currentPlan: SelectionPlan | null;
   studyMetadata: StudyMetadata | null;
+  activeToolCall: { name: string; input: Record<string, unknown> } | null;
+  toolCallLog: { name: string; input: Record<string, unknown>; ts: number }[];
   onConfirmPlan: (plan: SelectionPlan) => void;
   onCancelPlan: () => void;
   onStartAnalysis: (hint: string, options?: { surveyMode?: boolean }) => void;
@@ -40,6 +42,8 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
   pipeline,
   currentPlan,
   studyMetadata,
+  activeToolCall,
+  toolCallLog,
   onConfirmPlan,
   onCancelPlan,
   onStartAnalysis,
@@ -84,7 +88,7 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
-  }, [messages, status, pipeline, currentPlan]);
+  }, [messages, status, pipeline, currentPlan, activeToolCall, toolCallLog]);
 
   const handleSend = () => {
     const trimmed = input.trim();
@@ -198,6 +202,11 @@ export default forwardRef<ChatSidebarHandle, ChatSidebarProps>(function ChatSide
             onAccept={onConfirmPlan}
             onCancel={onCancelPlan}
           />
+        )}
+
+        {/* Agent 工具调用活动面板 — analyzing 阶段实时显示 LLM 正在做什么 */}
+        {status === 'analyzing' && (activeToolCall || toolCallLog.length > 0) && (
+          <AgentActivityPanel activeToolCall={activeToolCall} toolCallLog={toolCallLog} />
         )}
 
         {busy && statusText && status === 'following-up' && (
@@ -351,4 +360,105 @@ function MessageBubble({ message }: { message: ChatMessage }) {
   }
   // Assistant messages are rendered by AssistantMessage
   return null;
+}
+
+// --- Agent 工具调用活动面板 ---
+
+const TOOL_META: Record<string, { icon: typeof Wrench; label: string }> = {
+  list_series: { icon: Layers, label: '列出序列' },
+  get_slice: { icon: Image, label: '获取切片' },
+  get_slice_range: { icon: Image, label: '获取切片范围' },
+  render_mpr: { icon: Crosshair, label: 'MPR 重建' },
+  get_hu_stats: { icon: Ruler, label: 'HU 测量' },
+  annotate: { icon: MapPin, label: '标注' },
+  finish_analysis: { icon: Activity, label: '完成分析' },
+};
+
+/** 把工具 input 摘要成一行人类可读文本 */
+function summarizeToolCall(name: string, input: Record<string, unknown>): string {
+  const g = (k: string) => input[k];
+  switch (name) {
+    case 'list_series':
+      return '查询所有可用序列';
+    case 'get_slice':
+      return `序列 ${g('seriesNumber')} · 切片 ${g('instanceNumber')} · W:${g('windowWidth')} L:${g('windowCenter')}`;
+    case 'get_slice_range':
+      return `序列 ${g('seriesNumber')} · ${g('startInstance')}–${g('endInstance')} · 采样 ${g('count')} 张`;
+    case 'render_mpr':
+      return `序列 ${g('seriesNumber')} · ${g('plane')} · 位置 ${((Number(g('positionPercent')) || 0) * 100).toFixed(0)}%`;
+    case 'get_hu_stats':
+      return `序列 ${g('seriesNumber')} · 切片 ${g('instanceNumber')} · ROI(${g('x')},${g('y')}) r=${g('radius')}`;
+    case 'annotate': {
+      const label = g('label') as string | undefined;
+      return `序列 ${g('seriesNumber')} · 切片 ${g('instanceNumber')} · ${g('annotationType')}${label ? ` "${label}"` : ''}`;
+    }
+    case 'finish_analysis':
+      return '提交最终报告';
+    default:
+      return name;
+  }
+}
+
+interface AgentActivityPanelProps {
+  activeToolCall: { name: string; input: Record<string, unknown> } | null;
+  toolCallLog: { name: string; input: Record<string, unknown>; ts: number }[];
+}
+
+function AgentActivityPanel({ activeToolCall, toolCallLog }: AgentActivityPanelProps) {
+  const { t } = useTranslation();
+  // 只显示最近 6 条,避免面板过长
+  const recent = toolCallLog.slice(-6);
+
+  return (
+    <div className="border border-neutral-700 rounded-lg bg-neutral-850 overflow-hidden" style={{ backgroundColor: 'rgb(30 30 33)' }}>
+      <div className="flex items-center gap-1.5 px-2.5 py-1.5 border-b border-neutral-700 bg-neutral-800/60">
+        <Activity className="w-3.5 h-3.5 text-amber-400" />
+        <span className="text-xs font-medium text-neutral-300">
+          {t('chat.agentActivity', { defaultValue: 'Agent 工具调用' })}
+        </span>
+        <span className="ml-auto text-[10px] text-neutral-500">{toolCallLog.length} 次</span>
+      </div>
+
+      <div className="max-h-48 overflow-y-auto py-1">
+        {recent.map((call, i) => {
+          const meta = TOOL_META[call.name] ?? { icon: Wrench, label: call.name };
+          const Icon = meta.icon;
+          const isActive = activeToolCall?.name === call.name && i === recent.length - 1;
+          return (
+            <div
+              key={`${call.ts}-${i}`}
+              className={`flex items-start gap-1.5 px-2.5 py-1 text-[11px] ${isActive ? 'bg-amber-950/30' : ''}`}
+            >
+              <Icon className={`w-3 h-3 mt-0.5 shrink-0 ${isActive ? 'text-amber-400' : 'text-neutral-500'}`} />
+              <div className="min-w-0 flex-1">
+                <span className={`font-medium ${isActive ? 'text-amber-300' : 'text-neutral-400'}`}>{meta.label}</span>
+                <span className="text-neutral-500 ml-1 break-all">{summarizeToolCall(call.name, call.input)}</span>
+              </div>
+              {isActive && <Loader2 className="w-3 h-3 text-amber-400 animate-spin shrink-0 mt-0.5" />}
+            </div>
+          );
+        })}
+
+        {/* 当前正在执行但还没加入 log(理论上 activeToolCall 总是 log 最后一条,这里做兜底) */}
+        {activeToolCall && (toolCallLog.length === 0 || toolCallLog[toolCallLog.length - 1].name !== activeToolCall.name) && (
+          <div className="flex items-start gap-1.5 px-2.5 py-1 text-[11px] bg-amber-950/30">
+            {(() => {
+              const meta = TOOL_META[activeToolCall.name] ?? { icon: Wrench, label: activeToolCall.name };
+              const Icon = meta.icon;
+              return (
+                <>
+                  <Icon className="w-3 h-3 mt-0.5 shrink-0 text-amber-400" />
+                  <div className="min-w-0 flex-1">
+                    <span className="font-medium text-amber-300">{meta.label}</span>
+                    <span className="text-neutral-500 ml-1 break-all">{summarizeToolCall(activeToolCall.name, activeToolCall.input)}</span>
+                  </div>
+                  <Loader2 className="w-3 h-3 text-amber-400 animate-spin shrink-0 mt-0.5" />
+                </>
+              );
+            })()}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
