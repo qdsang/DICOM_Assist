@@ -1,6 +1,6 @@
 import JSZip from 'jszip';
 
-const SAMPLE_DATA_URL = '/sample-data/sample-knee-mri.zip';
+const SAMPLE_DATA_URL = `${import.meta.env.BASE_URL}sample-data/sample-knee-mri.zip`;
 
 export interface SampleDataProgress {
   phase: 'downloading' | 'extracting' | 'loading';
